@@ -67,3 +67,17 @@ go vet ./...               # Static analysis
 - Commit `working/`, temp review files, or build artifacts.
 - Use `float64` for integer JSON fields.
 - Expose `task.delete` at any layer.
+- File GitHub issues directly — write to `working/feedback/` instead (see below).
+
+## Reporting Issues
+
+If you encounter unexpected behavior while using the SP bridge MCP tools or CLI,
+write a concise report to `working/feedback/<descriptive-slug>.md` with:
+
+- **What was attempted** (command or tool call)
+- **What happened** (exact output or error)
+- **What was expected**
+- **Version** (`sp-local-bridge --version`)
+
+Do NOT file GitHub issues directly. The maintainer reviews `working/feedback/`
+and files confirmed issues manually.

@@ -47,7 +47,7 @@ Skills symlink      ✓ / ✗
 ```
 
 Then state the proposed actions:
-- Install bridge (if not installed)
+- Install or update bridge (if not installed or outdated)
 - Configure host (if not configured)
 - Create skills symlink (if missing)
 
@@ -59,7 +59,7 @@ If SP app is not running, warn but offer to proceed (config can be written witho
 
 ## Phase 3: Execute (uninterrupted after confirmation)
 
-### 3a. Install the bridge (if not already installed)
+### 3a. Install or update the bridge
 
 If not installed, install from the latest GitHub release (Linux/macOS):
 
@@ -77,7 +77,9 @@ test -f "$REPO_ROOT/go.mod" && test -f "$REPO_ROOT/scripts/install.sh" || { echo
 bash "$REPO_ROOT/scripts/install.sh"
 ```
 
-If already installed, skip.
+If already installed, check whether a newer version is available by comparing
+the installed version against the latest GitHub release tag. If a newer version
+exists, re-run the install script above to update. If already at latest, skip.
 
 ### 3b. Configure the detected host
 

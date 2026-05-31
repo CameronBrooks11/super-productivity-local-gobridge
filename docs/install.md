@@ -10,6 +10,8 @@ curl -sSL https://raw.githubusercontent.com/CameronBrooks11/super-productivity-l
 
 The script auto-detects your OS and architecture. It fails closed if the checksum does not match.
 
+> **Note:** This command fetches the installer from the `main` branch. For a pinned version, download the script from a specific release tag or use the manual install method below.
+
 ## Manual Download from GitHub Releases
 
 Download the appropriate archive for your platform from the [Releases page](https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases).
@@ -27,7 +29,7 @@ Release archives are versioned. Replace `VERSION` with the release version (e.g.
 | Windows x86_64 | `sp-local-bridge_VERSION_windows_amd64.zip` |
 | Windows arm64 | `sp-local-bridge_VERSION_windows_arm64.zip` |
 
-### Linux / macOS
+### Linux
 
 ```sh
 # Set the version you want to install
@@ -42,6 +44,25 @@ grep "sp-local-bridge_${VERSION}_linux_amd64.tar.gz" checksums.txt | sha256sum -
 
 # Extract and install
 tar xzf "sp-local-bridge_${VERSION}_linux_amd64.tar.gz"
+chmod +x sp-local-bridge
+sudo mv sp-local-bridge /usr/local/bin/
+```
+
+### macOS
+
+```sh
+# Set the version you want to install
+VERSION="0.1.0"
+
+# Download archive and checksums (adjust darwin_arm64 to darwin_amd64 for Intel Macs)
+curl -LO "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/download/v${VERSION}/sp-local-bridge_${VERSION}_darwin_arm64.tar.gz"
+curl -LO "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/download/v${VERSION}/checksums.txt"
+
+# Verify checksum (macOS uses shasum instead of sha256sum)
+grep "sp-local-bridge_${VERSION}_darwin_arm64.tar.gz" checksums.txt | shasum -a 256 -c -
+
+# Extract and install
+tar xzf "sp-local-bridge_${VERSION}_darwin_arm64.tar.gz"
 chmod +x sp-local-bridge
 sudo mv sp-local-bridge /usr/local/bin/
 ```

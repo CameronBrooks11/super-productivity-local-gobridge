@@ -1,16 +1,19 @@
 # Super Productivity Local Go Bridge
 
+> **Status: Pre-release / WIP** — builds and passes tests on Linux. Cross-platform CI is configured but not yet validated against a real release. MCP protocol has not been tested against live hosts beyond unit tests.
+
 A local automation bridge for the [Super Productivity](https://super-productivity.com/) desktop app, written in Go. Provides CLI access and an MCP (Model Context Protocol) server for AI-assisted task management.
 
-This is a rewrite of [super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge) (Python) as a single static binary with zero runtime dependencies.
+This is a Go rewrite of [super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge) (Python v0.2.0) targeting single-binary portability.
 
 ## Features
 
-- **Single binary** — no runtime dependencies, cross-platform (Linux, macOS, Windows)
-- **MCP server** — stdio transport for AI host integration (Claude Desktop, VS Code, etc.)
-- **CLI** — direct command-line access to all operations
-- **16 operations** — tasks (CRUD, complete/uncomplete, archive/restore, time tracking), projects, tags, status
-- **Strict validation** — same contract as the Python v0.2.0 bridge
+- **Single binary** — no runtime dependencies, ~5 MB static binary
+- **MCP server** — hand-rolled JSON-RPC 2.0 over stdio (protocol version 2024-11-05)
+- **CLI** — task CRUD, time tracking, projects, tags
+- **16 operations** — same operation set as the Python v0.2.0 bridge
+- **Host configuration** — configure claude-desktop, vscode-copilot, codex
+- **Strict validation** — integer fields reject exponents and overflow
 
 ## Requirements
 
@@ -19,26 +22,28 @@ This is a rewrite of [super-productivity-local-bridge](https://github.com/Camero
 
 ## Installation
 
-### From releases (recommended)
-
-```bash
-curl -sSL https://raw.githubusercontent.com/CameronBrooks11/super-productivity-local-gobridge/main/scripts/install.sh | bash
-```
-
-### From source
+### From source (recommended until first release)
 
 ```bash
 git clone https://github.com/CameronBrooks11/super-productivity-local-gobridge
 cd super-productivity-local-gobridge
 make build
-sudo install -m 755 sp-local-bridge /usr/local/bin/
+install -m 755 sp-local-bridge ~/.local/bin/
 ```
+
+### From releases (after first tagged release)
+
+```bash
+curl -sSL https://raw.githubusercontent.com/CameronBrooks11/super-productivity-local-gobridge/main/scripts/install.sh | bash
+```
+
+The install script downloads the binary + checksums, verifies SHA256, creates multicall symlinks, and installs to `~/.local/bin` by default.
 
 ## Quick Start
 
 ```bash
 # Check connectivity
-sp-local-bridge health
+sp-local-bridge doctor
 
 # List tasks
 sp-local-bridge tasks list
@@ -49,45 +54,34 @@ sp-local-bridge tasks add "Review PR #42"
 # Start tracking
 sp-local-bridge tasks start <task-id>
 
-# Run MCP server
+# Configure a host
+sp-local-bridge configure claude-desktop
+sp-local-bridge configure vscode-copilot
+sp-local-bridge configure codex
+
+# Run MCP server (usually invoked by a host, not manually)
 sp-local-bridge mcp
 ```
 
-## MCP Configuration
+## Host Configuration
 
-### Claude Desktop
+The `configure` command writes MCP config directly to a host's config file:
 
 ```bash
-sp-local-bridge configure
+sp-local-bridge configure <host>           # Add entry
+sp-local-bridge configure --dry-run <host> # Preview without writing
+sp-local-bridge configure --remove <host>  # Remove entry
 ```
 
-Or manually add to your Claude Desktop config:
+Supported hosts:
 
-```json
-{
-  "mcpServers": {
-    "sp-local-bridge": {
-      "command": "/usr/local/bin/sp-local-bridge",
-      "args": ["mcp"]
-    }
-  }
-}
-```
+| Host | Format | Config path (Linux) |
+|------|--------|---------------------|
+| `claude-desktop` | JSON | `~/.config/Claude/claude_desktop_config.json` |
+| `vscode-copilot` | JSON | `~/.config/Code/User/mcp.json` |
+| `codex` | TOML | `~/.codex/config.toml` |
 
-### VS Code (Copilot)
-
-Add to `.vscode/mcp.json`:
-
-```json
-{
-  "servers": {
-    "sp-local-bridge": {
-      "command": "sp-local-bridge",
-      "args": ["mcp"]
-    }
-  }
-}
-```
+Features: atomic writes (temp + rename), backup (.bak), JSON merge preserves existing entries, surgical TOML editing preserves other sections.
 
 ## CLI Reference
 
@@ -109,6 +103,9 @@ sp-local-bridge tasks archive <id>           Archive a task
 sp-local-bridge tasks restore <id>           Restore an archived task
 sp-local-bridge projects list [--query ...]  List projects
 sp-local-bridge tags list [--query ...]      List tags
+sp-local-bridge doctor                       Run diagnostics
+sp-local-bridge configure <host>             Write host config
+sp-local-bridge print-config <host>          Print config snippet
 ```
 
 ### Task list filters
@@ -136,24 +133,26 @@ sp-local-bridge tags list [--query ...]      List tags
 
 ## MCP Tools
 
-| Tool | Operation | Description |
-|------|-----------|-------------|
-| `health` | bridge.health | Check SP connectivity and status |
-| `get_status` | status.get | Get current SP application status |
-| `list_tasks` | task.list | List tasks with optional filters |
-| `get_task` | task.get | Get a task by ID |
-| `create_task` | task.create | Create a new task |
-| `update_task` | task.update | Update a task |
-| `complete_task` | task.complete | Mark a task as done |
-| `uncomplete_task` | task.uncomplete | Mark a task as not done |
-| `start_task` | task.start | Start time tracking |
-| `stop_current_task` | task.stop_current | Stop time tracking |
-| `get_current_task` | task.get_current | Get currently tracked task |
-| `set_current_task` | task.set_current | Set or clear current task |
-| `archive_task` | task.archive | Archive a task |
-| `restore_task` | task.restore | Restore an archived task |
-| `list_projects` | project.list | List projects |
-| `list_tags` | tag.list | List tags |
+16 tools exposed via stdio JSON-RPC:
+
+| Tool | Description |
+|------|-------------|
+| `health` | Check SP connectivity and status |
+| `get_status` | Get current SP application status |
+| `list_tasks` | List tasks with optional filters |
+| `get_task` | Get a task by ID |
+| `create_task` | Create a new task |
+| `update_task` | Update a task |
+| `complete_task` | Mark a task as done |
+| `uncomplete_task` | Mark a task as not done |
+| `start_task` | Start time tracking |
+| `stop_current_task` | Stop time tracking |
+| `get_current_task` | Get currently tracked task |
+| `set_current_task` | Set or clear current task |
+| `archive_task` | Archive a task |
+| `restore_task` | Restore an archived task |
+| `list_projects` | List projects |
+| `list_tags` | List tags |
 
 ## Environment Variables
 
@@ -164,20 +163,13 @@ sp-local-bridge tags list [--query ...]      List tags
 ## Development
 
 ```bash
-# Build
-make build
-
-# Test
-make test
-
-# Test with coverage
-make test-cover
-
-# All checks (format, vet, test)
-make check
-
-# Clean
-make clean
+make build          # Build binary
+make test           # Run tests
+make test-cover     # Tests with coverage
+make check          # Format check + vet + test (non-mutating)
+make race           # Run tests with race detector
+make fmt            # Format code (mutates files)
+make clean          # Remove build artifacts
 ```
 
 ## Architecture
@@ -188,12 +180,17 @@ internal/
   bridge/               Core types, errors, validation, REST client, service
   cli/                  CLI command handling
   mcpadapter/           MCP stdio server adapter
-  doctor/               Connectivity diagnostics
-  hostcfg/              Host app configuration writer
+  doctor/               Connectivity and environment diagnostics
+  hostcfg/              Host app configuration writer (JSON + TOML)
   version/              Build-time version info
-testdata/fixtures/      Test fixture JSON files
 scripts/                Install/uninstall scripts
 ```
+
+## Design Decisions
+
+- **No MCP SDK**: Hand-rolled JSON-RPC keeps the dependency tree at zero. Acceptable only after real host validation (not yet complete).
+- **Multicall binary**: Single binary responds to `argv[0]` for MCP host compatibility (hosts launch `sp-local-bridge-mcp` directly).
+- **No float64 for integers**: Integer fields use `strconv.ParseInt` directly on raw JSON to avoid precision loss.
 
 ## License
 

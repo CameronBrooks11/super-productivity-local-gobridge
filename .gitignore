@@ -28,6 +28,11 @@ go.work.sum
 # env file
 .env
 
+# Node (docs site)
+node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+
 # Local planning and scratch work
 working/
 

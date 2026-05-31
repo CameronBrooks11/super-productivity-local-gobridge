@@ -19,7 +19,7 @@ This checks:
 
 **Fix**:
 1. Open Super Productivity
-2. Go to Settings → Sync → Local REST API
+2. Go to Settings → Sync & Export → Local REST API
 3. Enable the API
 4. Verify: `curl http://127.0.0.1:3876/health`
 

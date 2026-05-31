@@ -63,7 +63,7 @@ To revert to the Python bridge:
 
 ## Behavioral Differences
 
-The Go bridge is a strict superset of the Python bridge v0.2.0. Known differences:
+The Go bridge has feature parity with the Python bridge v0.2.0 and adds Go-specific installation advantages. Known differences:
 
 - Error messages may differ in wording (same error codes).
 - The `doctor` command output format differs slightly.

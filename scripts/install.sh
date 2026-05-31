@@ -13,6 +13,11 @@ ALIASES=(sp-local-bridge-mcp sp-local-bridge-doctor sp-local-bridge-print-config
 
 # Detect OS and arch
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+case "$OS" in
+  linux|darwin) ;;
+  *) echo "Error: install.sh supports Linux and macOS only. For Windows, download manually from Releases." >&2; exit 1 ;;
+esac
+
 ARCH="$(uname -m)"
 case "$ARCH" in
   x86_64) ARCH="amd64" ;;

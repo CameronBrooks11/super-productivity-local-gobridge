@@ -24,13 +24,24 @@ type hostMeta struct {
 	configPath func() string
 }
 
+// homeDir returns the user's home directory.
+// It prefers $HOME (respects test overrides and standard Unix behavior)
+// and falls back to os.UserHomeDir() for Windows/system directories.
+func homeDir() string {
+	if h := os.Getenv("HOME"); h != "" {
+		return h
+	}
+	h, _ := os.UserHomeDir()
+	return h
+}
+
 var hosts = map[string]hostMeta{
 	HostClaudeDesktop: {
 		format:    "json",
 		serverKey: "mcpServers",
 		entryName: "super-productivity",
 		configPath: func() string {
-			home, _ := os.UserHomeDir()
+			home := homeDir()
 			switch runtime.GOOS {
 			case "darwin":
 				return filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")
@@ -46,7 +57,7 @@ var hosts = map[string]hostMeta{
 		serverKey: "servers",
 		entryName: "superProductivity",
 		configPath: func() string {
-			home, _ := os.UserHomeDir()
+			home := homeDir()
 			switch runtime.GOOS {
 			case "darwin":
 				return filepath.Join(home, "Library", "Application Support", "Code", "User", "mcp.json")
@@ -62,7 +73,7 @@ var hosts = map[string]hostMeta{
 		serverKey: "mcp_servers",
 		entryName: "superProductivity",
 		configPath: func() string {
-			home, _ := os.UserHomeDir()
+			home := homeDir()
 			return filepath.Join(home, ".codex", "config.toml")
 		},
 	},

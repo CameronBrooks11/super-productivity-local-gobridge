@@ -1,4 +1,4 @@
-.PHONY: build test lint fmt fmt-check vet check race clean install
+.PHONY: build test lint fmt fmt-check vet check race clean install docs snapshot
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -36,8 +36,23 @@ vet:
 race:
 	go test -race ./... -count=1
 
-check: fmt-check vet test
+scripts-check:
+	@bash -n scripts/install.sh
+	@bash -n scripts/uninstall.sh
+	@echo "Scripts syntax OK."
+
+docs:
+	npm run docs:build
+
+check: fmt-check vet test scripts-check
 	@echo "All checks passed."
+
+snapshot:
+	@command -v goreleaser >/dev/null 2>&1 || { echo "goreleaser not installed"; exit 1; }
+	goreleaser release --snapshot --clean
+
+doctor: build
+	./$(BINARY) doctor
 
 clean:
 	rm -f $(BINARY) coverage.out

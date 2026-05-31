@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-31
+
 ### Added
 
 - Complete Go rewrite — single static binary, zero runtime dependencies
@@ -49,5 +51,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Python release (separate repo). See [super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge) for history.
 
-[Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/commits/main
+[Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/tag/v0.1.0
 [0.2.0]: https://github.com/CameronBrooks11/super-productivity-local-bridge/releases/tag/v0.2.0

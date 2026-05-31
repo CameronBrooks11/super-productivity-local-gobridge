@@ -5,6 +5,64 @@ import (
 	"testing"
 )
 
+// Test tasks add with flags parses correctly (exits 1 = SP unavailable, not 2 = parse error).
+func TestRun_TasksAdd_WithFlags(t *testing.T) {
+	t.Setenv("SP_BASE_URL", "http://127.0.0.1:1")
+	code := Run([]string{"tasks", "add", "My Task", "--project-id", "proj-1"})
+	if code != 1 {
+		t.Errorf("expected exit code 1 (SP down), got %d", code)
+	}
+}
+
+// Test tasks add with --tag-id.
+func TestRun_TasksAdd_WithTagID(t *testing.T) {
+	t.Setenv("SP_BASE_URL", "http://127.0.0.1:1")
+	code := Run([]string{"tasks", "add", "Tagged Task", "--tag-id", "tag-abc"})
+	if code != 1 {
+		t.Errorf("expected exit code 1 (SP down), got %d", code)
+	}
+}
+
+// Test tasks add with multiple flags.
+func TestRun_TasksAdd_MultipleFlags(t *testing.T) {
+	t.Setenv("SP_BASE_URL", "http://127.0.0.1:1")
+	code := Run([]string{"tasks", "add", "Full Task", "--project-id", "proj-1", "--tag-id", "tag-1", "--notes", "Some notes", "--due-day", "2026-06-15"})
+	if code != 1 {
+		t.Errorf("expected exit code 1 (SP down), got %d", code)
+	}
+}
+
+// Test tasks add rejects unknown flags.
+func TestRun_TasksAdd_UnknownFlag(t *testing.T) {
+	code := Run([]string{"tasks", "add", "Bad", "--bogus-flag", "val"})
+	if code != 2 {
+		t.Errorf("expected exit code 2 for unknown flag, got %d", code)
+	}
+}
+
+// Test tasks add rejects missing flag value.
+func TestRun_TasksAdd_MissingFlagValue(t *testing.T) {
+	flags := []string{"--project-id", "--tag-id", "--notes", "--due-day", "--time-estimate"}
+	for _, flag := range flags {
+		code := Run([]string{"tasks", "add", "Title", flag})
+		if code != 2 {
+			t.Errorf("flag %s without value: expected exit code 2, got %d", flag, code)
+		}
+	}
+}
+
+// Test tasks add --help shows usage.
+func TestRun_TasksAdd_Help(t *testing.T) {
+	old := os.Stdout
+	os.Stdout, _ = os.Open(os.DevNull)
+	defer func() { os.Stdout = old }()
+
+	code := Run([]string{"tasks", "add", "--help"})
+	if code != 0 {
+		t.Errorf("expected exit code 0 for --help, got %d", code)
+	}
+}
+
 // Test SP_BASE_URL is respected.
 func TestRun_SPBaseURLEnv(t *testing.T) {
 	// Use a dead port so health fails immediately

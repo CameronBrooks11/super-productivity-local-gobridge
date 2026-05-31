@@ -21,7 +21,7 @@ func Usage() {
 	fmt.Println("  status                       Get SP app status")
 	fmt.Println("  tasks list [filters]         List tasks (see filters below)")
 	fmt.Println("  tasks get <id>               Get a task by ID")
-	fmt.Println("  tasks add <title>            Create a new task")
+	fmt.Println("  tasks add <title> [flags]    Create a new task")
 	fmt.Println("  tasks update <id> [flags]    Update a task")
 	fmt.Println("  tasks complete <id>          Mark a task as done")
 	fmt.Println("  tasks uncomplete <id>        Mark a task as not done")
@@ -47,6 +47,13 @@ func Usage() {
 	fmt.Println("  --tag-id <id>                Filter by tag (use TODAY for today's tasks)")
 	fmt.Println("  --include-done               Include completed tasks")
 	fmt.Println("  --source <active|archived|all>  Task pool to query")
+	fmt.Println()
+	fmt.Println("Task create flags (tasks add):")
+	fmt.Println("  --project-id <id>            Assign to project (from projects list)")
+	fmt.Println("  --tag-id <id>                Assign a tag (from tags list)")
+	fmt.Println("  --notes <text>               Set notes")
+	fmt.Println("  --due-day <YYYY-MM-DD>       Set due date")
+	fmt.Println("  --time-estimate <ms>         Set time estimate (milliseconds)")
 	fmt.Println()
 	fmt.Println("Task update flags:")
 	fmt.Println("  --title <text>               New title")
@@ -227,7 +234,7 @@ func handleTaskAdd(ctx context.Context, service *bridge.Service, args []string) 
 				fmt.Fprintln(os.Stderr, "Error: Flag --tag-id requires a value")
 				return 2
 			}
-			payload["tagIds"] = json.RawMessage(`["` + args[i+1] + `"]`)
+			payload["tagIds"] = mustMarshal([]string{args[i+1]})
 			i += 2
 		case "--notes":
 			if i+1 >= len(args) {

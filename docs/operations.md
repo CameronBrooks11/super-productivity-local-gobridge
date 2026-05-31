@@ -8,7 +8,7 @@ The bridge exposes 16 operations, available via both MCP tools and CLI commands.
 |-----------|----------|-------------|-------------|
 | `task.list` | `list_tasks` | `tasks list [filters]` | List tasks with optional filters |
 | `task.get` | `get_task` | `tasks get <id>` | Get a task by ID |
-| `task.create` | `create_task` | `tasks add <title>` | Create a new task |
+| `task.create` | `create_task` | `tasks add <title> [flags]` | Create a new task |
 | `task.update` | `update_task` | `tasks update <id> [flags]` | Update a task |
 | `task.complete` | `complete_task` | `tasks complete <id>` | Mark as done |
 | `task.uncomplete` | `uncomplete_task` | `tasks uncomplete <id>` | Mark as not done |
@@ -61,6 +61,10 @@ Same as create except: `parentId` is not allowed on update.
 | `tagId` | string | Filter by tag (`TODAY` for today's tasks) |
 | `includeDone` | boolean | Include completed tasks |
 | `source` | `active` \| `archived` \| `all` | Task pool (default: `active`) |
+
+::: tip
+`source=all` expands the pool to include archived tasks but does **not** automatically show completed tasks. Most archived tasks are done, so combine with `includeDone=true` to see them. The `taskCount` in `get_status` reflects the active pool including done tasks (not all tasks across all sources).
+:::
 
 ## Error Codes
 

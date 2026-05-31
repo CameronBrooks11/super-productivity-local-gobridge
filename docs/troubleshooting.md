@@ -53,7 +53,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 **Fix**:
 1. Check SP is not in a stuck state (restart if needed)
-2. The bridge uses a 30-second timeout by default
+2. The bridge uses a 10-second timeout per request
 
 ### INVALID_INPUT errors
 

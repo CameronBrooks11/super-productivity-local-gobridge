@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -14,6 +15,31 @@ func withTempHome(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	return dir
+}
+
+// testConfigPath returns the platform-aware config path for a host,
+// using the same logic as the production code.
+func testConfigPath(home, hostName string) string {
+	switch hostName {
+	case HostClaudeDesktop:
+		switch runtime.GOOS {
+		case "darwin":
+			return filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")
+		default:
+			return filepath.Join(home, ".config", "Claude", "claude_desktop_config.json")
+		}
+	case HostVSCodeCopilot:
+		switch runtime.GOOS {
+		case "darwin":
+			return filepath.Join(home, "Library", "Application Support", "Code", "User", "mcp.json")
+		default:
+			return filepath.Join(home, ".config", "Code", "User", "mcp.json")
+		}
+	case HostCodex:
+		return filepath.Join(home, ".codex", "config.toml")
+	default:
+		return ""
+	}
 }
 
 func TestSurgicalTOMLWrite_AddNew(t *testing.T) {
@@ -241,7 +267,7 @@ func TestRunConfigure_DryRunClaude(t *testing.T) {
 		t.Fatalf("expected exit 0 for dry-run, got %d", code)
 	}
 	// Verify no file was written
-	configPath := filepath.Join(home, ".config", "Claude", "claude_desktop_config.json")
+	configPath := testConfigPath(home, HostClaudeDesktop)
 	if _, err := os.Stat(configPath); err == nil {
 		t.Fatal("dry-run should not create config file")
 	}
@@ -253,7 +279,7 @@ func TestRunConfigure_DryRunVSCode(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("expected exit 0 for dry-run, got %d", code)
 	}
-	configPath := filepath.Join(home, ".config", "Code", "User", "mcp.json")
+	configPath := testConfigPath(home, HostVSCodeCopilot)
 	if _, err := os.Stat(configPath); err == nil {
 		t.Fatal("dry-run should not create config file")
 	}
@@ -265,7 +291,7 @@ func TestRunConfigure_DryRunCodex(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("expected exit 0 for dry-run, got %d", code)
 	}
-	configPath := filepath.Join(home, ".codex", "config.toml")
+	configPath := testConfigPath(home, HostCodex)
 	if _, err := os.Stat(configPath); err == nil {
 		t.Fatal("dry-run should not create config file")
 	}
@@ -277,7 +303,7 @@ func TestRunConfigure_Claude_WritesJSON(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d", code)
 	}
-	configPath := filepath.Join(home, ".config", "Claude", "claude_desktop_config.json")
+	configPath := testConfigPath(home, HostClaudeDesktop)
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("config file not created: %v", err)
@@ -298,7 +324,7 @@ func TestRunConfigure_VSCode_WritesJSON(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d", code)
 	}
-	configPath := filepath.Join(home, ".config", "Code", "User", "mcp.json")
+	configPath := testConfigPath(home, HostVSCodeCopilot)
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("config file not created: %v", err)
@@ -323,7 +349,7 @@ func TestRunConfigure_Codex_WritesTOML(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d", code)
 	}
-	configPath := filepath.Join(home, ".codex", "config.toml")
+	configPath := testConfigPath(home, HostCodex)
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("config file not created: %v", err)
@@ -339,7 +365,7 @@ func TestRunConfigure_Codex_WritesTOML(t *testing.T) {
 
 func TestRunConfigure_JSON_CreatesBackup(t *testing.T) {
 	home := withTempHome(t)
-	configPath := filepath.Join(home, ".config", "Claude", "claude_desktop_config.json")
+	configPath := testConfigPath(home, HostClaudeDesktop)
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
 	os.WriteFile(configPath, []byte(`{"existing":"data"}`), 0o644)
 
@@ -358,7 +384,7 @@ func TestRunConfigure_JSON_CreatesBackup(t *testing.T) {
 
 func TestRunConfigure_TOML_CreatesBackup(t *testing.T) {
 	home := withTempHome(t)
-	configPath := filepath.Join(home, ".codex", "config.toml")
+	configPath := testConfigPath(home, HostCodex)
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
 	os.WriteFile(configPath, []byte("[other]\nkey = 'val'\n"), 0o644)
 
@@ -377,7 +403,7 @@ func TestRunConfigure_TOML_CreatesBackup(t *testing.T) {
 
 func TestRunConfigure_MalformedJSON_FailsClosed(t *testing.T) {
 	home := withTempHome(t)
-	configPath := filepath.Join(home, ".config", "Claude", "claude_desktop_config.json")
+	configPath := testConfigPath(home, HostClaudeDesktop)
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
 	os.WriteFile(configPath, []byte(`{not valid json!!!`), 0o644)
 
@@ -389,7 +415,7 @@ func TestRunConfigure_MalformedJSON_FailsClosed(t *testing.T) {
 
 func TestRunConfigure_MalformedTOML_FailsClosed(t *testing.T) {
 	home := withTempHome(t)
-	configPath := filepath.Join(home, ".codex", "config.toml")
+	configPath := testConfigPath(home, HostCodex)
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
 	os.WriteFile(configPath, []byte("[unclosed bracket\n"), 0o644)
 
@@ -401,7 +427,7 @@ func TestRunConfigure_MalformedTOML_FailsClosed(t *testing.T) {
 
 func TestRunConfigure_Remove_JSON(t *testing.T) {
 	home := withTempHome(t)
-	configPath := filepath.Join(home, ".config", "Claude", "claude_desktop_config.json")
+	configPath := testConfigPath(home, HostClaudeDesktop)
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
 	os.WriteFile(configPath, []byte(`{"mcpServers":{"super-productivity":{"command":"x","args":["mcp"]}}}`), 0o644)
 
@@ -417,7 +443,7 @@ func TestRunConfigure_Remove_JSON(t *testing.T) {
 
 func TestRunConfigure_Remove_TOML(t *testing.T) {
 	home := withTempHome(t)
-	configPath := filepath.Join(home, ".codex", "config.toml")
+	configPath := testConfigPath(home, HostCodex)
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
 	os.WriteFile(configPath, []byte("[mcp_servers.superProductivity]\ncommand = '/x'\nargs = ['mcp']\n\n[other]\nkey = 'val'\n"), 0o644)
 
@@ -436,7 +462,7 @@ func TestRunConfigure_Remove_TOML(t *testing.T) {
 
 func TestRunConfigure_Remove_MalformedTOML_FailsClosed(t *testing.T) {
 	home := withTempHome(t)
-	configPath := filepath.Join(home, ".codex", "config.toml")
+	configPath := testConfigPath(home, HostCodex)
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
 	os.WriteFile(configPath, []byte("[bad header\ncommand = 'x'\n"), 0o644)
 

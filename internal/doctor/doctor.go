@@ -136,6 +136,14 @@ func checkHostConfigs() []string {
 	if runtime.GOOS == "darwin" {
 		checks[0].path = filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")
 		checks[1].path = filepath.Join(home, "Library", "Application Support", "Code", "User", "mcp.json")
+	} else if runtime.GOOS == "windows" {
+		appData := os.Getenv("APPDATA")
+		if appData == "" {
+			appData = filepath.Join(home, "AppData", "Roaming")
+		}
+		checks[0].path = filepath.Join(appData, "Claude", "claude_desktop_config.json")
+		checks[1].path = filepath.Join(appData, "Code", "User", "mcp.json")
+		// codex path stays the same (~/.codex/config.toml)
 	}
 
 	var configured []string

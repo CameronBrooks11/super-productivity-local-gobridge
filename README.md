@@ -30,7 +30,7 @@ git clone https://github.com/CameronBrooks11/super-productivity-local-gobridge.g
 cd super-productivity-local-gobridge
 ```
 
-Deploy your agent (`claude`, `codex`, `copilot`, `gemini`, etc.) and ask it to set up the bridge:
+Deploy your coding agent and ask it to set up the bridge:
 
 ```
 Set up the Super Productivity Local Bridge

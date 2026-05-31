@@ -29,9 +29,13 @@ esac
 if [[ -n "${VERSION:-}" ]]; then
   VERSION="${VERSION#v}"
 else
-  # Get latest version from GitHub API
+  # Get latest stable version from GitHub API; fall back to newest pre-release
   VERSION="$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" \
     | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')" || true
+  if [[ -z "$VERSION" ]]; then
+    VERSION="$(curl -sL "https://api.github.com/repos/${REPO}/releases" \
+      | grep '"tag_name"' | head -1 | sed -E 's/.*"v([^"]+)".*/\1/')" || true
+  fi
   if [[ -z "$VERSION" ]]; then
     echo "Error: Failed to determine latest version from GitHub API." >&2
     echo "Set VERSION=x.y.z explicitly or check your network." >&2

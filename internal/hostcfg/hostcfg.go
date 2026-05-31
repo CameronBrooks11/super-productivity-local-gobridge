@@ -349,13 +349,19 @@ func addTOMLEntry(configPath string, meta hostMeta, entry map[string]any, dryRun
 
 	var originalLines []string
 	if data, err := os.ReadFile(configPath); err == nil {
-		originalLines = strings.SplitAfter(string(data), "\n")
-		// Validate existing TOML is parseable (basic check)
-		// We only check structure, not full TOML spec
+		content := string(data)
+		if err := validateTOMLStructure(content); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: cannot parse %s\n", configPath)
+			fmt.Fprintf(os.Stderr, "  %v\n", err)
+			fmt.Fprintln(os.Stderr, "  Manual repair needed. Then re-run this command.")
+			return 1
+		}
+		originalLines = strings.SplitAfter(content, "\n")
 	}
 
 	resultLines := surgicalTOMLWrite(originalLines, meta.serverKey, meta.entryName, &entryContent)
 
+	backup(configPath)
 	if err := atomicWrite(configPath, strings.Join(resultLines, "")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing config: %v\n", err)
 		return 1
@@ -375,7 +381,15 @@ func removeTOMLEntry(configPath string, meta hostMeta, dryRun bool) int {
 		return 0
 	}
 
-	originalLines := strings.SplitAfter(string(data), "\n")
+	content := string(data)
+	if err := validateTOMLStructure(content); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: cannot parse %s\n", configPath)
+		fmt.Fprintf(os.Stderr, "  %v\n", err)
+		fmt.Fprintln(os.Stderr, "  Manual repair needed. Then re-run this command.")
+		return 1
+	}
+
+	originalLines := strings.SplitAfter(content, "\n")
 	targetHeader := fmt.Sprintf("[%s.%s]", meta.serverKey, meta.entryName)
 
 	// Check if entry exists
@@ -400,6 +414,7 @@ func removeTOMLEntry(configPath string, meta hostMeta, dryRun bool) int {
 
 	resultLines := surgicalTOMLWrite(originalLines, meta.serverKey, meta.entryName, nil)
 
+	backup(configPath)
 	if err := atomicWrite(configPath, strings.Join(resultLines, "")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing config: %v\n", err)
 		return 1
@@ -422,6 +437,43 @@ func formatTOMLEntry(entry map[string]any) string {
 		lines = append(lines, fmt.Sprintf("args = [%s]", strings.Join(items, ", ")))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// validateTOMLStructure performs a basic structural validation of TOML content.
+// It rejects files with unclosed quotes, unmatched brackets in headers, or
+// obviously malformed key=value lines. This is not a full TOML parser, but it
+// catches corruption that would make surgical editing unsafe.
+func validateTOMLStructure(content string) error {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		stripped := strings.TrimSpace(line)
+		if stripped == "" || strings.HasPrefix(stripped, "#") {
+			continue
+		}
+		// Table header validation
+		if strings.HasPrefix(stripped, "[") {
+			// Must end with ]
+			if !strings.HasSuffix(stripped, "]") {
+				return fmt.Errorf("line %d: unclosed table header: %s", i+1, stripped)
+			}
+			// Extract content between brackets (handle [[array]])
+			inner := stripped[1 : len(stripped)-1]
+			if strings.HasPrefix(inner, "[") && strings.HasSuffix(inner, "]") {
+				inner = inner[1 : len(inner)-1] // array of tables
+			}
+			// Must have a valid dotted key
+			inner = strings.TrimSpace(inner)
+			if inner == "" {
+				return fmt.Errorf("line %d: empty table header", i+1)
+			}
+			continue
+		}
+		// Key=value line validation — must contain = outside of quotes
+		if !strings.Contains(stripped, "=") {
+			return fmt.Errorf("line %d: expected key = value, got: %s", i+1, stripped)
+		}
+	}
+	return nil
 }
 
 // surgicalTOMLWrite adds, replaces, or removes a single [serverKey.entryName] block

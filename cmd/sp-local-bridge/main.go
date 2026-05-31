@@ -52,9 +52,9 @@ func main() {
 	case "doctor":
 		runDoctor()
 	case "print-config":
-		runPrintConfig()
+		os.Exit(hostcfg.RunPrintConfig(os.Args[2:]))
 	case "configure":
-		runConfigure()
+		os.Exit(hostcfg.RunConfigure(os.Args[2:]))
 	default:
 		code := cli.Run(os.Args[1:])
 		os.Exit(code)

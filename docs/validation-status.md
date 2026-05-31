@@ -21,9 +21,9 @@ Current validation state for the Go bridge across platforms and host application
 
 "Live Host Session" means a human has connected the Go bridge to the specific host application and confirmed MCP tool invocations work end-to-end through the host's MCP client. This is distinct from raw stdio protocol validation below.
 
-## Release Artifact Validation (v0.1.0-rc.1)
+## Release Artifact Validation (v0.1.1)
 
-Raw MCP stdio protocol validation on Linux x86_64, 2026-05-31. This validates the release binary works correctly at the protocol level but does not validate host-app integration.
+Raw MCP stdio protocol validation on Linux x86_64, 2026-05-31. Initially validated against v0.1.0-rc.1; v0.1.0 and v0.1.1 contain only CLI/docs fixes (no protocol changes), so artifact validation carries forward.
 
 - Release workflow completed successfully (GoReleaser v7, all 6 platform archives published)
 - `checksums.txt` verified: all 6 archives pass `sha256sum -c`

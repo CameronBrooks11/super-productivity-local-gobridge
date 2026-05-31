@@ -21,10 +21,12 @@ Run these checks silently and collect the results:
    fails, the Super Productivity desktop app is not running or Local REST API is
    not enabled.
 3. **Detect platform** — check `uname -s` (Linux/Darwin) and `uname -m`.
-4. **Detect agent** — determine which agent you are running as:
-   - If `$VSCODE_PID` or `$VSCODE_IPC_HOOK_CLI` is set → vscode-copilot
-   - If `codex --version` succeeds → codex
-   - Otherwise → unknown (will ask user which host to configure)
+4. **Detect agent** — determine which host to configure:
+   - First, use your own identity context: if you know you are running inside
+     VS Code Copilot, Claude Desktop, Codex, or another host, use that directly.
+   - Otherwise check environment: `$VSCODE_PID` or `$VSCODE_IPC_HOOK_CLI` set → vscode-copilot
+   - Otherwise check if `codex --version` succeeds → codex
+   - If still unknown → ask the user which host to configure
 5. **Existing config** — if installed, run `sp-local-bridge configure --dry-run <detected-host>`
    to check if config is already written.
 6. **Skills symlink** — check if `~/.agents/skills/sp-local-bridge-setup` exists.

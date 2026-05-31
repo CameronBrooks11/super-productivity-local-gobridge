@@ -22,11 +22,8 @@ Replace `/path/to/sp-local-bridge` with the actual binary path.
 
 ## Verify
 
-```bash
-codex --help  # Should show MCP tools available
-```
-
-Try asking Codex to interact with your tasks.
+Start a Codex session and ask it to list your tasks or run a health check.
+Live Codex host validation is pending — see [Validation Status](/validation-status).
 
 ## Troubleshooting
 

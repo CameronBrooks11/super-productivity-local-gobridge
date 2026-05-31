@@ -33,7 +33,7 @@ Release archives are versioned. Replace `VERSION` with the release version (e.g.
 
 ```sh
 # Set the version you want to install
-VERSION="0.1.0"
+VERSION="0.1.1"
 
 # Download archive and checksums
 curl -LO "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/download/v${VERSION}/sp-local-bridge_${VERSION}_linux_amd64.tar.gz"
@@ -52,7 +52,7 @@ sudo mv sp-local-bridge /usr/local/bin/
 
 ```sh
 # Set the version you want to install
-VERSION="0.1.0"
+VERSION="0.1.1"
 
 # Download archive and checksums (adjust darwin_arm64 to darwin_amd64 for Intel Macs)
 curl -LO "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/download/v${VERSION}/sp-local-bridge_${VERSION}_darwin_arm64.tar.gz"

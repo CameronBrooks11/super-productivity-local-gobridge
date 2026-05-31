@@ -17,12 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `configure` command with --dry-run and --remove
 - `print-config` command with --absolute/--bare
 - Surgical TOML editing for Codex config (preserves other entries)
-- Atomic file writes with backup (.bak) for host config
+- Atomic file writes with backup (.bak) for all host config formats
 - Doctor diagnostics: health, status, PATH, host config, task smoke test
 - Multicall binary (symlink as sp-local-bridge-mcp, etc.)
 - Cross-platform CI (Linux, macOS, Windows)
 - GoReleaser v2 release automation
-- Install script with SHA256 checksum verification
+- Install script with fail-closed SHA256 checksum verification
 - Integer validation without float64 precision loss
 
 ### Changed
@@ -36,9 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - uv/pip packaging
 - Entry point scripts (replaced by multicall binary)
 
-## [0.2.0] - 2025-05-25
+## [0.2.0] - 2026-05-31
 
-Python release. See [super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge) for history.
+Python release (separate repo). See [super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge) for history.
 
-[Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/commits/main
 [0.2.0]: https://github.com/CameronBrooks11/super-productivity-local-bridge/releases/tag/v0.2.0

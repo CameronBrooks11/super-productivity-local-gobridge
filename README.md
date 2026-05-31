@@ -37,7 +37,7 @@ install -m 755 sp-local-bridge ~/.local/bin/
 curl -sSL https://raw.githubusercontent.com/CameronBrooks11/super-productivity-local-gobridge/main/scripts/install.sh | bash
 ```
 
-The install script downloads the binary + checksums, verifies SHA256, creates multicall symlinks, and installs to `~/.local/bin` by default.
+The install script downloads the binary + checksums, verifies SHA256 (fails closed on mismatch or missing checksum), creates multicall symlinks, and installs to `~/.local/bin` by default. Works on both Linux (sha256sum) and macOS (shasum).
 
 ## Quick Start
 
@@ -81,7 +81,9 @@ Supported hosts:
 | `vscode-copilot` | JSON | `~/.config/Code/User/mcp.json` |
 | `codex` | TOML | `~/.codex/config.toml` |
 
-Features: atomic writes (temp + rename), backup (.bak), JSON merge preserves existing entries, surgical TOML editing preserves other sections.
+macOS uses `~/Library/Application Support/...` and Windows uses `%APPDATA%\...` equivalents automatically.
+
+Features: atomic writes (temp + rename), backup (.bak), fail-closed on malformed configs, JSON merge preserves existing entries, surgical TOML editing preserves other sections.
 
 ## CLI Reference
 

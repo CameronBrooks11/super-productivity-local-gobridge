@@ -67,7 +67,7 @@ Determine the repo root (the directory containing this SKILL.md, two levels up):
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ```
 
-If not installed, run:
+If not installed, run (Linux/macOS only; requires a published release):
 
 ```bash
 cd "$REPO_ROOT" && scripts/install.sh

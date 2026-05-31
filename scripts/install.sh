@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Install sp-local-bridge from GitHub releases.
+# Supported platforms: Linux, macOS. For Windows, download manually from Releases.
 set -euo pipefail
 
 REPO="CameronBrooks11/super-productivity-local-gobridge"

@@ -92,7 +92,21 @@ func Run(args []string) int {
 	}
 }
 
+// hasHelpFlag returns true if -h or --help appears in args.
+func hasHelpFlag(args []string) bool {
+	for _, a := range args {
+		if a == "-h" || a == "--help" {
+			return true
+		}
+	}
+	return false
+}
+
 func handleTasks(ctx context.Context, service *bridge.Service, args []string) int {
+	if hasHelpFlag(args) {
+		Usage()
+		return 0
+	}
 	sub := "list"
 	if len(args) > 0 {
 		sub = args[0]
@@ -123,8 +137,7 @@ func handleTasks(ctx context.Context, service *bridge.Service, args []string) in
 			fmt.Fprintln(os.Stderr, "Error: tasks add requires a title")
 			return 2
 		}
-		title := strings.Join(args[1:], " ")
-		return execOp(ctx, service, bridge.OpTaskCreate, rawPayload("title", title))
+		return handleTaskAdd(ctx, service, args[1:])
 
 	case "update":
 		return handleTaskUpdate(ctx, service, args[1:])
@@ -187,7 +200,76 @@ func handleTasks(ctx context.Context, service *bridge.Service, args []string) in
 	}
 }
 
+func handleTaskAdd(ctx context.Context, service *bridge.Service, args []string) int {
+	payload := map[string]json.RawMessage{}
+
+	// First non-flag arg is the title
+	var title string
+	i := 0
+	if len(args) > 0 && !strings.HasPrefix(args[0], "--") {
+		title = args[0]
+		i = 1
+	}
+
+	// Parse flags
+	for i < len(args) {
+		flag := args[i]
+		switch flag {
+		case "--project-id":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: Flag --project-id requires a value")
+				return 2
+			}
+			payload["projectId"] = mustMarshal(args[i+1])
+			i += 2
+		case "--tag-id":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: Flag --tag-id requires a value")
+				return 2
+			}
+			payload["tagIds"] = json.RawMessage(`["` + args[i+1] + `"]`)
+			i += 2
+		case "--notes":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: Flag --notes requires a value")
+				return 2
+			}
+			payload["notes"] = mustMarshal(args[i+1])
+			i += 2
+		case "--due-day":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: Flag --due-day requires a value")
+				return 2
+			}
+			payload["dueDay"] = mustMarshal(args[i+1])
+			i += 2
+		case "--time-estimate":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: Flag --time-estimate requires a value")
+				return 2
+			}
+			payload["timeEstimate"] = json.RawMessage(args[i+1])
+			i += 2
+		default:
+			fmt.Fprintf(os.Stderr, "Error: Unknown flag: %s\n", flag)
+			return 2
+		}
+	}
+
+	if title == "" {
+		fmt.Fprintln(os.Stderr, "Error: tasks add requires a title")
+		return 2
+	}
+	payload["title"] = mustMarshal(title)
+
+	return execOp(ctx, service, bridge.OpTaskCreate, payload)
+}
+
 func handleTaskUpdate(ctx context.Context, service *bridge.Service, args []string) int {
+	if hasHelpFlag(args) {
+		Usage()
+		return 0
+	}
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "Error: tasks update requires a task ID")
 		return 2
@@ -265,6 +347,10 @@ func handleTaskUpdate(ctx context.Context, service *bridge.Service, args []strin
 }
 
 func handleProjects(ctx context.Context, service *bridge.Service, args []string) int {
+	if hasHelpFlag(args) {
+		Usage()
+		return 0
+	}
 	sub := "list"
 	if len(args) > 0 {
 		sub = args[0]
@@ -282,6 +368,10 @@ func handleProjects(ctx context.Context, service *bridge.Service, args []string)
 }
 
 func handleTags(ctx context.Context, service *bridge.Service, args []string) int {
+	if hasHelpFlag(args) {
+		Usage()
+		return 0
+	}
 	sub := "list"
 	if len(args) > 0 {
 		sub = args[0]

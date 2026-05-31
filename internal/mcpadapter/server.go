@@ -100,13 +100,13 @@ func (s *Server) registerTools() {
 		readOnlyAnnotations)
 
 	s.addTool("list_tasks", bridge.OpTaskList,
-		"List tasks with optional filters.",
+		"List tasks with optional filters. Use list_projects or list_tags first to get IDs for filtering.",
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"query":       map[string]any{"type": "string", "description": "Filter by title substring (case-insensitive)."},
-				"projectId":   map[string]any{"type": "string", "description": "Filter by project ID."},
-				"tagId":       map[string]any{"type": "string", "description": "Filter by tag ID. Use 'TODAY' for today's tasks."},
+				"projectId":   map[string]any{"type": "string", "description": "Filter by project ID (from list_projects, not a name)."},
+				"tagId":       map[string]any{"type": "string", "description": "Filter by tag ID (from list_tags). Use 'TODAY' for today's tasks."},
 				"includeDone": map[string]any{"type": "boolean", "description": "Include completed tasks (default: false)."},
 				"source":      map[string]any{"type": "string", "enum": []string{"active", "archived", "all"}, "description": "Task pool to query (default: active)."},
 			},
@@ -127,14 +127,14 @@ func (s *Server) registerTools() {
 		readOnlyAnnotations)
 
 	s.addTool("create_task", bridge.OpTaskCreate,
-		"Create a new task.",
+		"Create a new task. projectId and tagIds must be IDs from list_projects/list_tags, not names.",
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"title":        map[string]any{"type": "string", "description": "Task title (required)."},
 				"notes":        map[string]any{"type": "string", "description": "Task notes/description."},
-				"projectId":    map[string]any{"type": []any{"string", "null"}, "description": "Project ID to assign."},
-				"tagIds":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Tag IDs to assign."},
+				"projectId":    map[string]any{"type": []any{"string", "null"}, "description": "Project ID to assign (from list_projects)."},
+				"tagIds":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Tag IDs to assign (from list_tags)."},
 				"plannedAt":    map[string]any{"description": "Planned date (ISO string or epoch ms)."},
 				"dueDay":       map[string]any{"type": []any{"string", "null"}, "description": "Due date (YYYY-MM-DD)."},
 				"dueWithTime":  map[string]any{"type": []any{"integer", "null"}, "description": "Due timestamp (epoch ms)."},
@@ -156,8 +156,8 @@ func (s *Server) registerTools() {
 				"id":           map[string]any{"type": "string", "description": "Task ID (required)."},
 				"title":        map[string]any{"type": "string", "description": "New title."},
 				"notes":        map[string]any{"type": "string", "description": "New notes."},
-				"projectId":    map[string]any{"type": []any{"string", "null"}, "description": "New project ID (null to clear)."},
-				"tagIds":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New tag IDs."},
+				"projectId":    map[string]any{"type": []any{"string", "null"}, "description": "New project ID (from list_projects; null to clear)."},
+				"tagIds":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New tag IDs (from list_tags)."},
 				"plannedAt":    map[string]any{"description": "Planned date (ISO string or epoch ms, null to clear)."},
 				"dueDay":       map[string]any{"type": []any{"string", "null"}, "description": "Due date (YYYY-MM-DD, null to clear)."},
 				"dueWithTime":  map[string]any{"type": []any{"integer", "null"}, "description": "Due timestamp (epoch ms, null to clear)."},

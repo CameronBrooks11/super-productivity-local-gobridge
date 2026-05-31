@@ -1,4 +1,4 @@
-.PHONY: build test lint fmt vet check clean install
+.PHONY: build test lint fmt fmt-check vet check race clean install
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -27,10 +27,16 @@ lint:
 fmt:
 	gofmt -w .
 
+fmt-check:
+	@test -z "$$(gofmt -l .)" || { echo "Files need formatting:"; gofmt -l .; exit 1; }
+
 vet:
 	go vet ./...
 
-check: fmt vet test
+race:
+	go test -race ./... -count=1
+
+check: fmt-check vet test
 	@echo "All checks passed."
 
 clean:

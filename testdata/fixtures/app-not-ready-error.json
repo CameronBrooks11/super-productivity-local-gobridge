@@ -1,0 +1,7 @@
+{
+  "ok": false,
+  "error": {
+    "code": "APP_NOT_READY",
+    "message": "Renderer is not ready yet"
+  }
+}

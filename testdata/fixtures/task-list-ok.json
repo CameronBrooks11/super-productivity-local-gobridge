@@ -1,0 +1,24 @@
+[
+  {
+    "id": "task-abc123",
+    "title": "Review budget spreadsheet",
+    "isDone": false,
+    "projectId": "project-1",
+    "tagIds": ["tag-urgent"],
+    "parentId": null,
+    "notes": "Check Q2 actuals",
+    "plannedAt": null,
+    "dueDay": "2026-06-01"
+  },
+  {
+    "id": "task-def456",
+    "title": "Send weekly report",
+    "isDone": true,
+    "projectId": "project-1",
+    "tagIds": [],
+    "parentId": null,
+    "notes": "",
+    "plannedAt": null,
+    "dueDay": null
+  }
+]

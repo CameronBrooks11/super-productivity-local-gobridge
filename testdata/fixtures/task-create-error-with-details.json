@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "error": {
+    "code": "INVALID_REQUEST_BODY",
+    "message": "Invalid request body",
+    "details": {"field": "title"}
+  }
+}

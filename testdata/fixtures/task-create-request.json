@@ -1,0 +1,7 @@
+{
+  "title": "Write integration tests",
+  "projectId": "project-1",
+  "tagIds": ["tag-dev"],
+  "notes": "Cover REST client edge cases",
+  "parentId": null
+}

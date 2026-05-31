@@ -1,0 +1,16 @@
+[
+  {
+    "id": "project-1",
+    "title": "Work",
+    "theme": {
+      "primary": "#1976d2"
+    }
+  },
+  {
+    "id": "project-2",
+    "title": "Personal",
+    "theme": {
+      "primary": "#388e3c"
+    }
+  }
+]

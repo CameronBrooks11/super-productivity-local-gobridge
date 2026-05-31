@@ -1,0 +1,12 @@
+[
+  {
+    "id": "tag-urgent",
+    "name": "urgent",
+    "color": "#e53935"
+  },
+  {
+    "id": "tag-dev",
+    "name": "dev",
+    "color": "#1e88e5"
+  }
+]

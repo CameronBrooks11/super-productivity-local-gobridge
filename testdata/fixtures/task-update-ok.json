@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "data": {
+    "id": "task-new789",
+    "title": "Write integration tests (updated)",
+    "isDone": true,
+    "projectId": "project-1",
+    "tagIds": ["tag-dev"],
+    "notes": "Cover REST client edge cases",
+    "parentId": null
+  }
+}

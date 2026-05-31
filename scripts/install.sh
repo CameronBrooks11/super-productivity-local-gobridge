@@ -42,6 +42,8 @@ fi
 echo "Installing ${BINARY} v${VERSION} (${OS}/${ARCH}) to ${INSTALL_DIR}..."
 
 # Determine archive format (GoReleaser uses .zip for Windows, .tar.gz otherwise)
+# Note: Windows is rejected by the OS check above; this branch exists for
+# completeness if Windows support is added to the script in the future.
 if [[ "$OS" == "windows" ]]; then
   ARCHIVE="${BINARY}_${VERSION}_${OS}_${ARCH}.zip"
 else

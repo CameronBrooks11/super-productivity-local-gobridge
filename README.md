@@ -10,7 +10,7 @@ Go rewrite of [super-productivity-local-bridge](https://github.com/CameronBrooks
 
 ## Features
 
-- **Single binary** — no runtime dependencies, ~5 MB static binary
+- **Single binary** — no runtime dependencies, small static binary
 - **MCP server** — JSON-RPC 2.0 over stdio (protocol version 2024-11-05)
 - **16 operations** — full parity with Python bridge v0.2.0
 - **Host auto-config** — configures Claude Desktop, VS Code Copilot, Codex CLI

@@ -28,7 +28,7 @@ MCP is a **host adapter**, not the business logic layer. All operation logic liv
 
 ### Zero Dependencies
 
-The binary has zero external Go module dependencies. This keeps the supply chain minimal and the binary small (~5 MB).
+The binary has zero external Go module dependencies. This keeps the supply chain minimal and the binary small.
 
 ### No MCP SDK
 

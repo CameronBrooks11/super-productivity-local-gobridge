@@ -32,6 +32,7 @@ go.work.sum
 node_modules/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
+docs/.vitepress/.temp/
 
 # Local planning and scratch work
 working/

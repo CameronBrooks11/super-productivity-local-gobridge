@@ -407,9 +407,16 @@ func (s *Server) writeToolResult(id json.RawMessage, result bridge.Result) {
 		"content": content,
 		"isError": !result.OK,
 	}
-	// Include structuredContent for successful results with data
+	// Include structuredContent for successful results with data.
+	// If data is already a map/object, pass through directly.
+	// If data is a non-object (array, scalar), wrap as {"result": data}
+	// to match Python SDK behavior and ensure host compatibility.
 	if result.OK && result.Data != nil {
-		resp["structuredContent"] = result.Data
+		if _, isMap := result.Data.(map[string]any); isMap {
+			resp["structuredContent"] = result.Data
+		} else {
+			resp["structuredContent"] = map[string]any{"result": result.Data}
+		}
 	}
 	s.writeResult(id, resp)
 }

@@ -143,3 +143,87 @@ func TestMCP_Ping(t *testing.T) {
 		t.Fatalf("unexpected error: %v", resp["error"])
 	}
 }
+
+func TestMCP_StructuredContent_MapResult(t *testing.T) {
+	// Health returns a map — structuredContent should pass through directly
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/health" {
+			w.Write([]byte(`{"ok":true,"data":{"status":"up"}}`))
+		} else {
+			w.Write([]byte(`{"ok":true,"data":{"currentTask":null}}`))
+		}
+	})
+	resp := sendRPC(t, server, `{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"health","arguments":{}}}`)
+
+	result := resp["result"].(map[string]any)
+	sc := result["structuredContent"]
+	if sc == nil {
+		t.Fatal("expected structuredContent for successful map result")
+	}
+	scMap, ok := sc.(map[string]any)
+	if !ok {
+		t.Fatalf("expected structuredContent to be a map, got %T", sc)
+	}
+	// Should NOT be wrapped in {"result": ...} since the data is already a map
+	if _, hasResult := scMap["result"]; hasResult {
+		// Check it's not wrapped — it should have direct keys like "health" or "status"
+		if _, hasHealth := scMap["health"]; !hasHealth {
+			if _, hasStatus := scMap["status"]; !hasStatus {
+				t.Error("map result should be passed through directly, not wrapped")
+			}
+		}
+	}
+}
+
+func TestMCP_StructuredContent_ListResult(t *testing.T) {
+	// list_tasks returns an array — structuredContent should wrap as {"result": [...]}
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true,"data":[{"id":"t1","title":"Task 1"}]}`))
+	})
+	resp := sendRPC(t, server, `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"list_tasks","arguments":{}}}`)
+
+	result := resp["result"].(map[string]any)
+	if result["isError"] == true {
+		t.Fatalf("expected success, got error")
+	}
+	sc := result["structuredContent"]
+	if sc == nil {
+		t.Fatal("expected structuredContent for successful list result")
+	}
+	scMap, ok := sc.(map[string]any)
+	if !ok {
+		t.Fatalf("expected structuredContent to be a map (wrapped), got %T", sc)
+	}
+	// Should be wrapped as {"result": [...]}
+	wrapped, hasResult := scMap["result"]
+	if !hasResult {
+		t.Fatal("list result should be wrapped as {\"result\": [...]}")
+	}
+	arr, ok := wrapped.([]any)
+	if !ok {
+		t.Fatalf("expected wrapped result to be an array, got %T", wrapped)
+	}
+	if len(arr) != 1 {
+		t.Errorf("expected 1 item in array, got %d", len(arr))
+	}
+}
+
+func TestMCP_StructuredContent_ErrorResult(t *testing.T) {
+	// Error results should NOT have structuredContent
+	server := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(500)
+		w.Write([]byte(`{"ok":false,"error":"internal error"}`))
+	})
+	resp := sendRPC(t, server, `{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"health","arguments":{}}}`)
+
+	result := resp["result"].(map[string]any)
+	if result["isError"] != true {
+		t.Fatal("expected isError true")
+	}
+	if result["structuredContent"] != nil {
+		t.Error("error results should not have structuredContent")
+	}
+}

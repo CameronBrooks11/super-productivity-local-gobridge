@@ -1,18 +1,19 @@
 # Super Productivity Local Go Bridge
 
-> **Status: Pre-release / WIP** — builds and passes tests on Linux. Cross-platform CI is configured but not yet validated against a real release. MCP protocol has not been tested against live hosts beyond unit tests.
+> **Status: Pre-release** — CI passes on Linux, macOS, and Windows. MCP protocol shape is tested via black-box tests but not yet live-validated against host applications. See [Validation Status](https://cameronbrooks11.github.io/super-productivity-local-gobridge/validation-status).
 
 A local automation bridge for the [Super Productivity](https://super-productivity.com/) desktop app, written in Go. Provides CLI access and an MCP (Model Context Protocol) server for AI-assisted task management.
 
-This is a Go rewrite of [super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge) (Python v0.2.0) targeting single-binary portability.
+Go rewrite of [super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge) (Python v0.2.0) targeting single-binary portability.
+
+**[Documentation Site](https://cameronbrooks11.github.io/super-productivity-local-gobridge/)**
 
 ## Features
 
 - **Single binary** — no runtime dependencies, ~5 MB static binary
-- **MCP server** — hand-rolled JSON-RPC 2.0 over stdio (protocol version 2024-11-05)
-- **CLI** — task CRUD, time tracking, projects, tags
-- **16 operations** — same operation set as the Python v0.2.0 bridge
-- **Host configuration** — configure claude-desktop, vscode-copilot, codex
+- **MCP server** — JSON-RPC 2.0 over stdio (protocol version 2024-11-05)
+- **16 operations** — full parity with Python bridge v0.2.0
+- **Host auto-config** — configures Claude Desktop, VS Code Copilot, Codex CLI
 - **Strict validation** — integer fields reject exponents and overflow
 
 ## Requirements
@@ -20,9 +21,11 @@ This is a Go rewrite of [super-productivity-local-bridge](https://github.com/Cam
 - Super Productivity desktop app with Local REST API enabled (`http://127.0.0.1:3876`)
 - Enable: Settings → Sync & Export → Local REST API
 
-## Installation
+## Install
 
-### From source (recommended until first release)
+See the full [Install Guide](https://cameronbrooks11.github.io/super-productivity-local-gobridge/install) for all platforms and methods.
+
+### From source
 
 ```bash
 git clone https://github.com/CameronBrooks11/super-productivity-local-gobridge
@@ -30,14 +33,6 @@ cd super-productivity-local-gobridge
 make build
 install -m 755 sp-local-bridge ~/.local/bin/
 ```
-
-### From releases (after first tagged release)
-
-```bash
-curl -sSL https://raw.githubusercontent.com/CameronBrooks11/super-productivity-local-gobridge/main/scripts/install.sh | bash
-```
-
-The install script downloads the binary + checksums, verifies SHA256 (fails closed on mismatch or missing checksum), creates multicall symlinks, and installs to `~/.local/bin` by default. Works on both Linux (sha256sum) and macOS (shasum).
 
 ## Quick Start
 
@@ -63,74 +58,35 @@ sp-local-bridge configure codex
 sp-local-bridge mcp
 ```
 
-## Host Configuration
-
-The `configure` command writes MCP config directly to a host's config file:
+## Configure
 
 ```bash
-sp-local-bridge configure <host>           # Add entry
-sp-local-bridge configure --dry-run <host> # Preview without writing
+sp-local-bridge configure claude-desktop   # Write MCP config
+sp-local-bridge configure vscode-copilot
+sp-local-bridge configure codex
 sp-local-bridge configure --remove <host>  # Remove entry
 ```
 
-Supported hosts:
+See [Host Setup](https://cameronbrooks11.github.io/super-productivity-local-gobridge/hosts/) for details.
 
-| Host | Format | Config path (Linux) |
-|------|--------|---------------------|
-| `claude-desktop` | JSON | `~/.config/Claude/claude_desktop_config.json` |
-| `vscode-copilot` | JSON | `~/.config/Code/User/mcp.json` |
-| `codex` | TOML | `~/.codex/config.toml` |
+## Validate
 
-macOS uses `~/Library/Application Support/...` and Windows uses `%APPDATA%\...` equivalents automatically.
-
-Features: atomic writes (temp + rename), backup (.bak), fail-closed on malformed configs, JSON merge preserves existing entries, surgical TOML editing preserves other sections.
-
-## CLI Reference
-
-```
-sp-local-bridge health                       Check SP connectivity
-sp-local-bridge status                       Get SP app status
-sp-local-bridge tasks list [filters]         List tasks
-sp-local-bridge tasks get <id>               Get a task by ID
-sp-local-bridge tasks add <title>            Create a new task
-sp-local-bridge tasks update <id> [flags]    Update a task
-sp-local-bridge tasks complete <id>          Mark as done
-sp-local-bridge tasks uncomplete <id>        Mark as not done
-sp-local-bridge tasks start <id>             Start time tracking
-sp-local-bridge tasks stop-current           Stop current task tracking
-sp-local-bridge tasks current                Get currently tracked task
-sp-local-bridge tasks set-current <id>       Set current task by ID
-sp-local-bridge tasks clear-current          Clear current task
-sp-local-bridge tasks archive <id>           Archive a task
-sp-local-bridge tasks restore <id>           Restore an archived task
-sp-local-bridge projects list [--query ...]  List projects
-sp-local-bridge tags list [--query ...]      List tags
-sp-local-bridge doctor                       Run diagnostics
-sp-local-bridge configure <host>             Write host config
-sp-local-bridge print-config <host>          Print config snippet
+```bash
+sp-local-bridge doctor    # Check SP connectivity + environment
+sp-local-bridge health    # Quick health check
 ```
 
-### Task list filters
+## CLI
 
-```
---query <text>                    Filter by title substring
---project-id <id>                 Filter by project
---tag-id <id>                     Filter by tag (use TODAY for today's tasks)
---include-done                    Include completed tasks
---source <active|archived|all>    Task pool to query
-```
+Full CLI reference is in the [Operations docs](https://cameronbrooks11.github.io/super-productivity-local-gobridge/operations).
 
-### Task update flags
-
-```
---title <text>           New title
---notes <text>           New notes
---project-id <id>        Set project
---due-day <YYYY-MM-DD>   Set due date
---time-estimate <ms>     Set time estimate (milliseconds)
---time-spent <ms>        Set time spent (milliseconds)
---done                   Mark complete
---not-done               Mark incomplete
+```bash
+sp-local-bridge tasks list            # List tasks
+sp-local-bridge tasks add "Title"     # Create task
+sp-local-bridge tasks start <id>      # Start tracking
+sp-local-bridge tasks stop-current    # Stop tracking
+sp-local-bridge projects list         # List projects
+sp-local-bridge tags list             # List tags
 ```
 
 ## MCP Tools
@@ -156,43 +112,30 @@ sp-local-bridge print-config <host>          Print config snippet
 | `list_projects` | List projects |
 | `list_tags` | List tags |
 
-## Environment Variables
+## Security
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SP_BASE_URL` | `http://127.0.0.1:3876` | SP Local REST API base URL |
+- Localhost-only by design — no network exposure
+- Atomic config writes with backup
+- SHA256-verified release artifacts
+- See [Security docs](https://cameronbrooks11.github.io/super-productivity-local-gobridge/security)
 
 ## Development
 
 ```bash
+make check          # Format check + vet + test (non-mutating)
 make build          # Build binary
 make test           # Run tests
-make test-cover     # Tests with coverage
-make check          # Format check + vet + test (non-mutating)
 make race           # Run tests with race detector
-make fmt            # Format code (mutates files)
-make clean          # Remove build artifacts
 ```
 
-## Architecture
+## Documentation
 
-```
-cmd/sp-local-bridge/    Entry point (multicall + subcommand dispatch)
-internal/
-  bridge/               Core types, errors, validation, REST client, service
-  cli/                  CLI command handling
-  mcpadapter/           MCP stdio server adapter
-  doctor/               Connectivity and environment diagnostics
-  hostcfg/              Host app configuration writer (JSON + TOML)
-  version/              Build-time version info
-scripts/                Install/uninstall scripts
-```
+Full docs: **https://cameronbrooks11.github.io/super-productivity-local-gobridge/**
 
-## Design Decisions
-
-- **No MCP SDK**: Hand-rolled JSON-RPC keeps the dependency tree at zero. Acceptable only after real host validation (not yet complete).
-- **Multicall binary**: Single binary responds to `argv[0]` for MCP host compatibility (hosts launch `sp-local-bridge-mcp` directly).
-- **No float64 for integers**: Integer fields use `strconv.ParseInt` directly on raw JSON to avoid precision loss.
+- [Getting Started](https://cameronbrooks11.github.io/super-productivity-local-gobridge/getting-started)
+- [Operations Reference](https://cameronbrooks11.github.io/super-productivity-local-gobridge/operations)
+- [Migration from Python](https://cameronbrooks11.github.io/super-productivity-local-gobridge/migration)
+- [Validation Status](https://cameronbrooks11.github.io/super-productivity-local-gobridge/validation-status)
 
 ## License
 

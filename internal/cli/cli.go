@@ -46,7 +46,7 @@ func Usage() {
 	fmt.Println("  --project-id <id>            Filter by project")
 	fmt.Println("  --tag-id <id>                Filter by tag (use TODAY for today's tasks)")
 	fmt.Println("  --include-done               Include completed tasks")
-	fmt.Println("  --source <active|archived|all>  Task pool to query")
+	fmt.Println("  --source <active|archived|all>  Task pool (source=all still needs --include-done for completed tasks)")
 	fmt.Println()
 	fmt.Println("Task create flags (tasks add):")
 	fmt.Println("  --project-id <id>            Assign to project (from projects list)")

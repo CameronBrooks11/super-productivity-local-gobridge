@@ -95,7 +95,7 @@ func (s *Server) registerTools() {
 		readOnlyAnnotations)
 
 	s.addTool("get_status", bridge.OpStatusGet,
-		"Get current SP application status including active task and tracking state.",
+		"Get current SP application status including active task and tracking state. taskCount is the active pool including done tasks (not all tasks across sources).",
 		map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
 		readOnlyAnnotations)
 
@@ -139,8 +139,8 @@ func (s *Server) registerTools() {
 				"dueDay":       map[string]any{"type": []any{"string", "null"}, "description": "Due date (YYYY-MM-DD)."},
 				"dueWithTime":  map[string]any{"type": []any{"integer", "null"}, "description": "Due timestamp (epoch ms)."},
 				"isDone":       map[string]any{"type": "boolean", "description": "Initial completion state."},
-				"timeEstimate": map[string]any{"type": "integer", "minimum": 0, "description": "Time estimate (ms)."},
-				"timeSpent":    map[string]any{"type": "integer", "minimum": 0, "description": "Time spent (ms)."},
+				"timeEstimate": map[string]any{"type": "integer", "minimum": 0, "description": "Time estimate in milliseconds (e.g. 3600000 = 1h, 1800000 = 30m)."},
+				"timeSpent":    map[string]any{"type": "integer", "minimum": 0, "description": "Time spent in milliseconds (e.g. 3600000 = 1h, 1800000 = 30m)."},
 				"parentId":     map[string]any{"type": "string", "description": "Parent task ID (creates subtask; cannot combine with projectId/tagIds)."},
 			},
 			"required":             []string{"title"},
@@ -162,8 +162,8 @@ func (s *Server) registerTools() {
 				"dueDay":       map[string]any{"type": []any{"string", "null"}, "description": "Due date (YYYY-MM-DD, null to clear)."},
 				"dueWithTime":  map[string]any{"type": []any{"integer", "null"}, "description": "Due timestamp (epoch ms, null to clear)."},
 				"isDone":       map[string]any{"type": "boolean", "description": "Completion state."},
-				"timeEstimate": map[string]any{"type": "integer", "minimum": 0, "description": "Time estimate (ms)."},
-				"timeSpent":    map[string]any{"type": "integer", "minimum": 0, "description": "Time spent (ms)."},
+				"timeEstimate": map[string]any{"type": "integer", "minimum": 0, "description": "Time estimate in milliseconds (e.g. 3600000 = 1h, 1800000 = 30m)."},
+				"timeSpent":    map[string]any{"type": "integer", "minimum": 0, "description": "Time spent in milliseconds (e.g. 3600000 = 1h, 1800000 = 30m)."},
 			},
 			"required":             []string{"id"},
 			"additionalProperties": false,

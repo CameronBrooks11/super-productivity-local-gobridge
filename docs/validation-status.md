@@ -22,7 +22,7 @@ Current validation state for the Go bridge across platforms and host application
 ## What "Tested" Means
 
 - **Config Generation**: The `print-config` command produces correct output, verified by automated tests.
-- **Config Write**: The `configure` command writes valid config files with backup, verified by automated tests including fail-closed behavior on malformed input.
+- **Config Write**: JSON configs are parsed before mutation; Codex TOML uses structural guard tests plus backup and atomic-write tests.
 - **Live MCP Session**: A human has connected the bridge to the host application and confirmed tool invocations work end-to-end.
 
 ## Parity with Python Bridge

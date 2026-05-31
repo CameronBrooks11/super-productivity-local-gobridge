@@ -21,73 +21,72 @@ Go rewrite of [super-productivity-local-bridge](https://github.com/CameronBrooks
 - Super Productivity desktop app with Local REST API enabled (`http://127.0.0.1:3876`)
 - Enable: Settings → Sync & Export → Local REST API
 
-## Install
+## Get Started
 
-See the full [Install Guide](https://cameronbrooks11.github.io/super-productivity-local-gobridge/install) for all platforms and methods.
-
-### From source
+### 1. Install (one command, Linux/macOS)
 
 ```bash
-git clone https://github.com/CameronBrooks11/super-productivity-local-gobridge
-cd super-productivity-local-gobridge
-make build
-install -m 755 sp-local-bridge ~/.local/bin/
+curl -sSL https://raw.githubusercontent.com/CameronBrooks11/super-productivity-local-gobridge/main/scripts/install.sh | bash
 ```
 
-## Quick Start
+This downloads the latest release, verifies the SHA256 checksum, and installs to `~/.local/bin`.
+
+### 2. Configure your agent
 
 ```bash
-# Check connectivity
+sp-local-bridge configure vscode-copilot   # or claude-desktop, codex
+```
+
+### 3. Verify
+
+Reload your agent, then ask it:
+
+```
+What's the status of my Super Productivity tasks?
+```
+
+Or run diagnostics manually:
+
+```bash
 sp-local-bridge doctor
-
-# List tasks
-sp-local-bridge tasks list
-
-# Create a task
-sp-local-bridge tasks add "Review PR #42"
-
-# Start tracking
-sp-local-bridge tasks start <task-id>
-
-# Configure a host
-sp-local-bridge configure claude-desktop
-sp-local-bridge configure vscode-copilot
-sp-local-bridge configure codex
-
-# Run MCP server (usually invoked by a host, not manually)
-sp-local-bridge mcp
 ```
 
-## Configure
+### Agent-Driven Setup
+
+Clone the repo and ask your agent to handle everything:
 
 ```bash
-sp-local-bridge configure claude-desktop   # Write MCP config
-sp-local-bridge configure vscode-copilot
-sp-local-bridge configure codex
-sp-local-bridge configure --remove <host>  # Remove entry
+git clone https://github.com/CameronBrooks11/super-productivity-local-gobridge.git
+```
+
+Then ask your agent:
+
+```
+Set up the Super Productivity Local Bridge
+```
+
+The setup skill detects your platform, installs the binary, configures your agent's MCP config, and verifies connectivity.
+
+### More Install Options
+
+See the full [Install Guide](https://cameronbrooks11.github.io/super-productivity-local-gobridge/install) for all platforms, manual download, Windows, and from-source options.
+
+## CLI Quick Reference
+
+```bash
+sp-local-bridge doctor                 # Check SP connectivity + environment
+sp-local-bridge tasks list             # List tasks
+sp-local-bridge tasks add "Title"      # Create task
+sp-local-bridge tasks start <id>       # Start time tracking
+sp-local-bridge tasks stop-current     # Stop time tracking
+sp-local-bridge configure <host>       # Write MCP config (claude-desktop, vscode-copilot, codex)
+sp-local-bridge configure --remove <host>  # Remove MCP config entry
+sp-local-bridge mcp                    # Run MCP server (invoked by host, not manually)
 ```
 
 See [Host Setup](https://cameronbrooks11.github.io/super-productivity-local-gobridge/hosts/) for details.
 
-## Validate
-
-```bash
-sp-local-bridge doctor    # Check SP connectivity + environment
-sp-local-bridge health    # Quick health check
-```
-
-## CLI
-
-Full CLI reference is in the [Operations docs](https://cameronbrooks11.github.io/super-productivity-local-gobridge/operations).
-
-```bash
-sp-local-bridge tasks list            # List tasks
-sp-local-bridge tasks add "Title"     # Create task
-sp-local-bridge tasks start <id>      # Start tracking
-sp-local-bridge tasks stop-current    # Stop tracking
-sp-local-bridge projects list         # List projects
-sp-local-bridge tags list             # List tags
-```
+Full CLI reference: [Operations docs](https://cameronbrooks11.github.io/super-productivity-local-gobridge/operations).
 
 ## MCP Tools
 

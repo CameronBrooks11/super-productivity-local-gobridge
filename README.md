@@ -23,51 +23,38 @@ Go rewrite of [super-productivity-local-bridge](https://github.com/CameronBrooks
 
 ## Get Started
 
-### 1. Install (one command, Linux/macOS)
-
-```bash
-curl -sSL https://raw.githubusercontent.com/CameronBrooks11/super-productivity-local-gobridge/main/scripts/install.sh | bash
-```
-
-This downloads the latest release, verifies the SHA256 checksum, and installs to `~/.local/bin`.
-
-### 2. Configure your agent
-
-```bash
-sp-local-bridge configure vscode-copilot   # or claude-desktop, codex
-```
-
-### 3. Verify
-
-Reload your agent, then ask it:
-
-```
-What's the status of my Super Productivity tasks?
-```
-
-Or run diagnostics manually:
-
-```bash
-sp-local-bridge doctor
-```
-
-### Agent-Driven Setup
-
-Clone the repo and ask your agent to handle everything:
+Clone the repository:
 
 ```bash
 git clone https://github.com/CameronBrooks11/super-productivity-local-gobridge.git
+cd super-productivity-local-gobridge
 ```
 
-Then ask your agent:
+Deploy your agent (`claude`, `codex`, `copilot`, `gemini`, etc.) and ask it to set up the bridge:
 
 ```
 Set up the Super Productivity Local Bridge
 ```
 
-The setup skill detects your platform, installs the binary, configures your agent's MCP config, and verifies connectivity.
+The setup skill detects your platform, downloads and installs the binary, writes your agent's MCP configuration, and verifies connectivity to Super Productivity.
 
-### More Install Options
+### Verify
+
+Ask your agent:
+
+```
+What's the status of my Super Productivity tasks?
+```
+
+### Manual Install
+
+If you prefer not to use agent-driven setup:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/CameronBrooks11/super-productivity-local-gobridge/main/scripts/install.sh | bash
+sp-local-bridge configure vscode-copilot   # or claude-desktop, codex
+sp-local-bridge doctor
+```
 
 See the full [Install Guide](https://cameronbrooks11.github.io/super-productivity-local-gobridge/install) for all platforms, manual download, Windows, and from-source options.
 

@@ -151,11 +151,11 @@ func RunPrintConfig(args []string) int {
 		for k, v := range entry {
 			switch val := v.(type) {
 			case string:
-				fmt.Printf("%s = '%s'\n", k, val)
+				fmt.Printf("%s = %s\n", k, tomlQuote(val))
 			case []string:
 				items := make([]string, len(val))
 				for i, s := range val {
-					items[i] = "'" + s + "'"
+					items[i] = tomlQuote(s)
 				}
 				fmt.Printf("%s = [%s]\n", k, strings.Join(items, ", "))
 			}
@@ -438,22 +438,34 @@ func removeTOMLEntry(configPath string, meta hostMeta, dryRun bool) int {
 func formatTOMLEntry(entry map[string]any) string {
 	var lines []string
 	if cmd, ok := entry["command"].(string); ok {
-		lines = append(lines, fmt.Sprintf("command = '%s'", cmd))
+		lines = append(lines, fmt.Sprintf("command = %s", tomlQuote(cmd)))
 	}
 	if args, ok := entry["args"].([]string); ok {
 		items := make([]string, len(args))
 		for i, s := range args {
-			items[i] = "'" + s + "'"
+			items[i] = tomlQuote(s)
 		}
 		lines = append(lines, fmt.Sprintf("args = [%s]", strings.Join(items, ", ")))
 	}
 	return strings.Join(lines, "\n")
 }
 
-// validateTOMLStructure performs a basic structural validation of TOML content.
-// It rejects files with unclosed quotes, unmatched brackets in headers, or
-// obviously malformed key=value lines. This is not a full TOML parser, but it
-// catches corruption that would make surgical editing unsafe.
+// tomlQuote produces a valid TOML basic string (double-quoted with escaping).
+// Single-quoted literal strings cannot contain single quotes, so we always
+// use basic strings for safety with arbitrary paths.
+func tomlQuote(s string) string {
+	// Escape backslashes and double quotes per TOML spec
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return `"` + s + `"`
+}
+
+// validateTOMLStructure performs a basic structural guard before surgical editing.
+// It checks that table headers are balanced ([...]) and non-header lines contain
+// a key=value assignment. This is NOT a full TOML parser: it does not validate
+// strings, arrays, inline tables, escaping, duplicate keys, or value types.
+// Its purpose is to reject obvious corruption that would make surgical line
+// editing unsafe, not to guarantee valid TOML.
 func validateTOMLStructure(content string) error {
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {

@@ -151,11 +151,25 @@ func TestFormatTOMLEntry(t *testing.T) {
 		"args":    []string{"mcp"},
 	}
 	got := formatTOMLEntry(entry)
-	if !strings.Contains(got, "command = '/usr/bin/sp-local-bridge'") {
-		t.Fatalf("expected TOML literal string, got: %s", got)
+	if !strings.Contains(got, `command = "/usr/bin/sp-local-bridge"`) {
+		t.Fatalf("expected TOML basic string, got: %s", got)
 	}
-	if !strings.Contains(got, "args = ['mcp']") {
+	if !strings.Contains(got, `args = ["mcp"]`) {
 		t.Fatalf("expected args array, got: %s", got)
+	}
+}
+
+func TestFormatTOMLEntry_EscapesSpecialChars(t *testing.T) {
+	entry := map[string]any{
+		"command": `/home/o'brien/bin/sp-bridge`,
+		"args":    []string{`--path="foo"`},
+	}
+	got := formatTOMLEntry(entry)
+	if !strings.Contains(got, `command = "/home/o'brien/bin/sp-bridge"`) {
+		t.Fatalf("apostrophe should pass through in basic string, got: %s", got)
+	}
+	if !strings.Contains(got, `--path=\"foo\"`) {
+		t.Fatalf("double quotes should be escaped, got: %s", got)
 	}
 }
 
@@ -318,7 +332,7 @@ func TestRunConfigure_Codex_WritesTOML(t *testing.T) {
 	if !strings.Contains(content, "[mcp_servers.superProductivity]") {
 		t.Fatalf("expected TOML header, got: %s", content)
 	}
-	if !strings.Contains(content, "command = '") {
+	if !strings.Contains(content, `command = "`) {
 		t.Fatalf("expected command entry, got: %s", content)
 	}
 }

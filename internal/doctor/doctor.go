@@ -1,10 +1,13 @@
 package doctor
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -107,6 +110,23 @@ func Run(args []string) int {
 		}
 	}
 
+	// MCP self-check
+	fmt.Print("MCP self-check... ")
+	if mcpErr := checkMCPSelf(exe); mcpErr != "" {
+		fmt.Printf("FAILED: %s\n", mcpErr)
+		failures++
+	} else {
+		fmt.Println("OK (16 tools)")
+	}
+
+	// Multicall alias check
+	fmt.Print("Multicall aliases... ")
+	if aliasErr := checkAliases(exe); aliasErr != "" {
+		fmt.Printf("WARN: %s\n", aliasErr)
+	} else {
+		fmt.Println("OK")
+	}
+
 	fmt.Println()
 	if failures > 0 {
 		fmt.Printf("%d check(s) failed.\n", failures)
@@ -170,4 +190,136 @@ func checkHostConfigs() []string {
 		}
 	}
 	return configured
+}
+
+// expectedToolCount is the number of MCP tools the bridge should expose.
+const expectedToolCount = 16
+
+// multicallAliases are the expected symlink/hardlink names.
+var multicallAliases = []string{
+	"sp-local-bridge-mcp",
+	"sp-local-bridge-doctor",
+	"sp-local-bridge-print-config",
+	"sp-local-bridge-configure",
+}
+
+// checkMCPSelf spawns the binary with "mcp", sends initialize + tools/list,
+// and verifies the expected tool count. Returns empty string on success.
+func checkMCPSelf(binaryPath string) string {
+	if binaryPath == "" {
+		return "cannot determine binary path"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, binaryPath, "mcp")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Sprintf("stdin pipe: %v", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Sprintf("stdout pipe: %v", err)
+	}
+	cmd.Stderr = io.Discard
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Sprintf("start: %v", err)
+	}
+	defer func() {
+		stdin.Close()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+
+	scanner := bufio.NewScanner(stdout)
+
+	// Send initialize
+	initReq := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor","version":"1.0.0"}}}` + "\n"
+	if _, err := io.WriteString(stdin, initReq); err != nil {
+		return fmt.Sprintf("write initialize: %v", err)
+	}
+
+	if !scanner.Scan() {
+		return "no response to initialize"
+	}
+	var initResp struct {
+		Result struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(scanner.Bytes(), &initResp); err != nil {
+		return fmt.Sprintf("parse initialize response: %v", err)
+	}
+	if initResp.Error != nil {
+		return fmt.Sprintf("initialize error: %s", initResp.Error.Message)
+	}
+
+	// Send initialized notification
+	initializedNotif := `{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n"
+	if _, err := io.WriteString(stdin, initializedNotif); err != nil {
+		return fmt.Sprintf("write initialized: %v", err)
+	}
+
+	// Send tools/list
+	toolsReq := `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}` + "\n"
+	if _, err := io.WriteString(stdin, toolsReq); err != nil {
+		return fmt.Sprintf("write tools/list: %v", err)
+	}
+
+	if !scanner.Scan() {
+		return "no response to tools/list"
+	}
+	var toolsResp struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(scanner.Bytes(), &toolsResp); err != nil {
+		return fmt.Sprintf("parse tools/list response: %v", err)
+	}
+	if toolsResp.Error != nil {
+		return fmt.Sprintf("tools/list error: %s", toolsResp.Error.Message)
+	}
+
+	count := len(toolsResp.Result.Tools)
+	if count != expectedToolCount {
+		return fmt.Sprintf("expected %d tools, got %d", expectedToolCount, count)
+	}
+
+	return ""
+}
+
+// checkAliases verifies that multicall aliases exist next to the binary.
+// Returns empty string if all found, or a description of missing ones.
+func checkAliases(binaryPath string) string {
+	if binaryPath == "" {
+		return "cannot determine binary path"
+	}
+
+	dir := filepath.Dir(binaryPath)
+	var missing []string
+	for _, alias := range multicallAliases {
+		aliasPath := filepath.Join(dir, alias)
+		if runtime.GOOS == "windows" {
+			aliasPath += ".exe"
+		}
+		if _, err := os.Stat(aliasPath); err != nil {
+			missing = append(missing, alias)
+		}
+	}
+
+	if len(missing) > 0 {
+		return fmt.Sprintf("missing: %s", strings.Join(missing, ", "))
+	}
+	return ""
 }

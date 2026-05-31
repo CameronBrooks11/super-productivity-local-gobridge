@@ -32,6 +32,7 @@ export default defineConfig({
       {
         text: "Reference",
         items: [
+          { text: "Validation Status", link: "/validation-status" },
           { text: "Security", link: "/security" },
           { text: "Troubleshooting", link: "/troubleshooting" },
         ],

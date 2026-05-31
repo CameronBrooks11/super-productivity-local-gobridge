@@ -13,9 +13,9 @@ hero:
       link: /operations
 features:
   - title: Single Binary
-    details: No runtime dependencies. One ~5 MB static binary for Linux, macOS, and Windows.
+    details: No runtime dependencies. One ~5 MB static binary designed for Linux, macOS, and Windows release artifacts.
   - title: MCP Server
-    details: 16 tools exposed via JSON-RPC 2.0 over stdio. Works with VS Code Copilot, Claude Desktop, and Codex CLI.
+    details: 16 tools exposed via JSON-RPC 2.0 over stdio. Configures VS Code Copilot, Claude Desktop, and Codex CLI.
   - title: CLI
     details: Direct command-line access to all task operations, projects, and tags.
   - title: Host Auto-Config

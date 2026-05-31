@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -158,7 +160,11 @@ func TestMCPBlackBox_EOFCleanShutdown(t *testing.T) {
 
 func buildBinary(t *testing.T) string {
 	t.Helper()
-	binary := t.TempDir() + "/sp-local-bridge-test"
+	name := "sp-local-bridge-test"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	binary := filepath.Join(t.TempDir(), name)
 	cmd := exec.Command("go", "build", "-o", binary, "./cmd/sp-local-bridge")
 	cmd.Dir = findModuleRoot(t)
 	out, err := cmd.CombinedOutput()

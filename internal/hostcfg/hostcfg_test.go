@@ -10,10 +10,16 @@ import (
 )
 
 // withTempHome sets HOME to a temp dir and returns a cleanup func.
+// On Windows, also sets APPDATA so that config path resolution works.
 func withTempHome(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	if runtime.GOOS == "windows" {
+		appData := filepath.Join(dir, "AppData", "Roaming")
+		os.MkdirAll(appData, 0o755)
+		t.Setenv("APPDATA", appData)
+	}
 	return dir
 }
 
@@ -25,6 +31,8 @@ func testConfigPath(home, hostName string) string {
 		switch runtime.GOOS {
 		case "darwin":
 			return filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")
+		case "windows":
+			return filepath.Join(home, "AppData", "Roaming", "Claude", "claude_desktop_config.json")
 		default:
 			return filepath.Join(home, ".config", "Claude", "claude_desktop_config.json")
 		}
@@ -32,6 +40,8 @@ func testConfigPath(home, hostName string) string {
 		switch runtime.GOOS {
 		case "darwin":
 			return filepath.Join(home, "Library", "Application Support", "Code", "User", "mcp.json")
+		case "windows":
+			return filepath.Join(home, "AppData", "Roaming", "Code", "User", "mcp.json")
 		default:
 			return filepath.Join(home, ".config", "Code", "User", "mcp.json")
 		}

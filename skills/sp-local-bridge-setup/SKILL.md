@@ -17,7 +17,7 @@ Run these checks silently and collect the results:
 
 1. **Bridge installed** — run `sp-local-bridge --version 2>/dev/null`. If it
    succeeds, the bridge is already installed.
-2. **SP app running** — run `curl -sf http://127.0.0.1:3876/api/status`. If it
+2. **SP app running** — run `curl -sf http://127.0.0.1:3876/health`. If it
    fails, the Super Productivity desktop app is not running or Local REST API is
    not enabled.
 3. **Detect platform** — check `uname -s` (Linux/Darwin) and `uname -m`.

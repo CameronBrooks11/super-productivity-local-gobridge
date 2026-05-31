@@ -21,7 +21,7 @@ This checks:
 1. Open Super Productivity
 2. Go to Settings → Sync → Local REST API
 3. Enable the API
-4. Verify: `curl http://127.0.0.1:3876/api/status`
+4. Verify: `curl http://127.0.0.1:3876/health`
 
 ### Tools not appearing in MCP host
 

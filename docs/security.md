@@ -40,7 +40,8 @@ The `configure` command:
 
 - Creates a backup (`.bak`) before modifying any config file
 - Uses atomic writes (temp file + rename) to prevent corruption
-- Fails closed on malformed existing configs (does not modify)
+- For JSON configs, parses the existing file before modification
+- For TOML configs (Codex), applies a structural guard and creates a backup before surgical edits; this is not a full TOML parser
 - Validates structure before writing
 
 ## Recommendations

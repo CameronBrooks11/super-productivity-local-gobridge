@@ -47,9 +47,9 @@ A single binary responds to multiple names via `os.Args[0]`:
 - `sp-local-bridge-configure` — host config writer
 - `sp-local-bridge-print-config` — prints config snippets
 
-### Fail-Closed Config
+### Config Safety
 
-Host config mutations (JSON merge, TOML surgery) validate existing files before writing. Malformed files cause an error exit rather than silent corruption. Backups are created before every write.
+For JSON configs, existing files are parsed before modification; malformed JSON causes an error exit. For Codex TOML configs, a structural guard checks table headers and key=value lines before surgical editing — this is not a full TOML parser, but it catches obvious corruption. Backups are created before every write.
 
 ### Atomic Writes
 

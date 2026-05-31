@@ -56,7 +56,7 @@ go vet ./...               # Static analysis
 - Tests in `internal/*/` alongside the code they test.
 - Integer fields parsed via `strconv.ParseInt` from raw JSON (no float64).
 - Atomic file writes with backup for host config mutations.
-- Fail-closed on malformed config files.
+- JSON configs parsed before modification; TOML uses structural guard (not a full parser).
 
 ## Do NOT
 

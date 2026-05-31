@@ -152,17 +152,26 @@ func TestGetInt_Negative(t *testing.T) {
 	}
 }
 
-func TestGetInt_ExponentNotation(t *testing.T) {
-	p := payload("n", `1e3`)
-	v, _, present, err := getInt(p, "n")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestGetInt_RejectsExponentNotation(t *testing.T) {
+	cases := []string{`1e3`, `1E3`, `1e309`, `9e999999`, `9007199254740993e0`}
+	for _, c := range cases {
+		p := payload("n", c)
+		_, _, _, err := getInt(p, "n")
+		if err == nil {
+			t.Fatalf("expected error for exponent notation %s", c)
+		}
 	}
-	if !present {
-		t.Fatal("expected present")
-	}
-	if v != 1000 {
-		t.Fatalf("expected 1000, got %d", v)
+}
+
+func TestGetInt_RejectsOverflow(t *testing.T) {
+	// int64 max is 9223372036854775807
+	cases := []string{`9223372036854775808`, `-9223372036854775809`}
+	for _, c := range cases {
+		p := payload("n", c)
+		_, _, _, err := getInt(p, "n")
+		if err == nil {
+			t.Fatalf("expected error for overflow %s", c)
+		}
 	}
 }
 

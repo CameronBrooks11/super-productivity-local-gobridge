@@ -86,24 +86,16 @@ func getInt(payload map[string]json.RawMessage, key string) (int64, bool, bool, 
 	if strings.Contains(s, ".") {
 		return 0, false, true, fmt.Errorf("field '%s' must be int, got float", key)
 	}
-	// Parse as integer (handles negatives, exponent notation like 1e3)
-	// First try direct int parsing
-	if v, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return v, false, true, nil
-	}
-	// Handle exponent notation (e.g. 1e3, 1E3) — only if result is integral
+	// Reject exponent notation — integer fields must be plain integers
 	if strings.ContainsAny(s, "eE") {
-		f, err := strconv.ParseFloat(s, 64)
-		if err != nil {
-			return 0, false, true, fmt.Errorf("field '%s' must be int, got %s", key, describeRawType(raw))
-		}
-		intVal := int64(f)
-		if float64(intVal) != f {
-			return 0, false, true, fmt.Errorf("field '%s' must be int, got float", key)
-		}
-		return intVal, false, true, nil
+		return 0, false, true, fmt.Errorf("field '%s' must be int, got float", key)
 	}
-	return 0, false, true, fmt.Errorf("field '%s' must be int, got %s", key, describeRawType(raw))
+	// Parse as plain integer (handles negatives)
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, false, true, fmt.Errorf("field '%s' must be int, got %s", key, describeRawType(raw))
+	}
+	return v, false, true, nil
 }
 
 // getNonNegativeInt extracts a non-negative integer (for timeEstimate, timeSpent).

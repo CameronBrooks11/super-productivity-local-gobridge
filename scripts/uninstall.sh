@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Uninstall sp-local-bridge and its multicall aliases.
+# Supported platforms: Linux, macOS.
 set -euo pipefail
 
 BINARY="sp-local-bridge"
@@ -14,14 +15,15 @@ if [[ ! -f "$TARGET" ]]; then
   exit 0
 fi
 
-# Print host config cleanup guidance BEFORE removing the binary
-echo "Note: If you configured any hosts, remove those entries first:"
-echo "  ${TARGET} configure --remove claude-desktop"
-echo "  ${TARGET} configure --remove vscode-copilot"
-echo "  ${TARGET} configure --remove codex"
-echo ""
-echo "Proceeding with removal..."
-echo ""
+# Offer host config cleanup BEFORE removing the binary
+echo "Remove host config entries before uninstalling? (y/N)"
+read -r REPLY
+if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+  for host in claude-desktop vscode-copilot codex; do
+    "${TARGET}" configure --remove "$host" 2>/dev/null || true
+  done
+  echo ""
+fi
 
 # Remove binary
 rm -f "$TARGET"

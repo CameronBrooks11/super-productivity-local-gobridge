@@ -14,6 +14,15 @@ if [[ ! -f "$TARGET" ]]; then
   exit 0
 fi
 
+# Print host config cleanup guidance BEFORE removing the binary
+echo "Note: If you configured any hosts, remove those entries first:"
+echo "  ${TARGET} configure --remove claude-desktop"
+echo "  ${TARGET} configure --remove vscode-copilot"
+echo "  ${TARGET} configure --remove codex"
+echo ""
+echo "Proceeding with removal..."
+echo ""
+
 # Remove binary
 rm -f "$TARGET"
 echo "Removed ${TARGET}"
@@ -29,6 +38,3 @@ done
 
 echo ""
 echo "✓ Uninstalled sp-local-bridge from ${INSTALL_DIR}"
-echo ""
-echo "Note: Host config entries (if any) are preserved."
-echo "To remove them: sp-local-bridge configure --remove <host>"

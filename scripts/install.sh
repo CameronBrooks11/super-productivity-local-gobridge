@@ -35,8 +35,12 @@ fi
 
 echo "Installing ${BINARY} v${VERSION} (${OS}/${ARCH}) to ${INSTALL_DIR}..."
 
-# Download archive and checksum
-ARCHIVE="${BINARY}_${VERSION}_${OS}_${ARCH}.tar.gz"
+# Determine archive format (GoReleaser uses .zip for Windows, .tar.gz otherwise)
+if [[ "$OS" == "windows" ]]; then
+  ARCHIVE="${BINARY}_${VERSION}_${OS}_${ARCH}.zip"
+else
+  ARCHIVE="${BINARY}_${VERSION}_${OS}_${ARCH}.tar.gz"
+fi
 CHECKSUMS="checksums.txt"
 BASE_URL="https://github.com/${REPO}/releases/download/v${VERSION}"
 
@@ -52,10 +56,23 @@ curl -fSL "${BASE_URL}/${CHECKSUMS}" -o "${TMP}/${CHECKSUMS}"
 echo "Verifying checksum..."
 EXPECTED="$(grep "${ARCHIVE}" "${TMP}/${CHECKSUMS}" | awk '{print $1}')"
 if [[ -z "$EXPECTED" ]]; then
-  echo "Warning: No checksum found for ${ARCHIVE} in checksums.txt" >&2
-  echo "Skipping verification (release may predate checksums)." >&2
+  if [[ "${SKIP_CHECKSUM:-}" == "1" ]]; then
+    echo "Warning: No checksum found, skipping (SKIP_CHECKSUM=1)." >&2
+  else
+    echo "Error: No checksum found for ${ARCHIVE} in checksums.txt" >&2
+    echo "Set SKIP_CHECKSUM=1 to bypass (not recommended)." >&2
+    exit 1
+  fi
 else
-  ACTUAL="$(sha256sum "${TMP}/${ARCHIVE}" | awk '{print $1}')"
+  # Use sha256sum (Linux) or shasum (macOS) for checksum
+  if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL="$(sha256sum "${TMP}/${ARCHIVE}" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    ACTUAL="$(shasum -a 256 "${TMP}/${ARCHIVE}" | awk '{print $1}')"
+  else
+    echo "Error: Neither sha256sum nor shasum found. Cannot verify checksum." >&2
+    exit 1
+  fi
   if [[ "$ACTUAL" != "$EXPECTED" ]]; then
     echo "Error: Checksum mismatch!" >&2
     echo "  Expected: ${EXPECTED}" >&2
@@ -67,7 +84,11 @@ else
 fi
 
 # Extract
-tar -xzf "${TMP}/${ARCHIVE}" -C "$TMP"
+if [[ "$ARCHIVE" == *.zip ]]; then
+  unzip -q "${TMP}/${ARCHIVE}" -d "$TMP"
+else
+  tar -xzf "${TMP}/${ARCHIVE}" -C "$TMP"
+fi
 
 # Validate the binary runs
 if ! "${TMP}/${BINARY}" --version >/dev/null 2>&1; then

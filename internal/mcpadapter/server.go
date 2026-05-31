@@ -407,6 +407,10 @@ func (s *Server) writeToolResult(id json.RawMessage, result bridge.Result) {
 		"content": content,
 		"isError": !result.OK,
 	}
+	// Include structuredContent for successful results with data
+	if result.OK && result.Data != nil {
+		resp["structuredContent"] = result.Data
+	}
 	s.writeResult(id, resp)
 }
 

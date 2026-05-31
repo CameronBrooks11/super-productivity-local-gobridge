@@ -70,6 +70,44 @@ func TestMCPBlackBox_ToolsCallUnknown(t *testing.T) {
 	}
 }
 
+func TestMCPBlackBox_ToolsCallHealthResult(t *testing.T) {
+	// Tests that tools/call returns a proper MCP tool result (not a JSON-RPC error)
+	binary := buildBinary(t)
+	resp := mcpRPC(t, binary, `{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"health","arguments":{}}}`)
+	// Should NOT be a JSON-RPC error — should be a tool result
+	if resp["error"] != nil {
+		t.Fatalf("expected tool result, got JSON-RPC error: %v", resp["error"])
+	}
+	result := resp["result"].(map[string]any)
+	// Must have content array
+	content, ok := result["content"].([]any)
+	if !ok || len(content) == 0 {
+		t.Fatal("expected non-empty content array")
+	}
+	// First content item must be text type
+	item := content[0].(map[string]any)
+	if item["type"] != "text" {
+		t.Errorf("expected type 'text', got %v", item["type"])
+	}
+	if item["text"] == nil || item["text"] == "" {
+		t.Error("expected non-empty text in content")
+	}
+
+	// Check structuredContent behavior based on isError
+	isError, _ := result["isError"].(bool)
+	if isError {
+		// Error results should NOT have structuredContent
+		if result["structuredContent"] != nil {
+			t.Error("error results should not have structuredContent")
+		}
+	} else {
+		// Successful results SHOULD have structuredContent
+		if result["structuredContent"] == nil {
+			t.Error("successful results should have structuredContent")
+		}
+	}
+}
+
 func TestMCPBlackBox_MultiMessage(t *testing.T) {
 	binary := buildBinary(t)
 	// Send multiple messages in one session

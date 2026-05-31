@@ -1,0 +1,7 @@
+schema_version: 1
+name: sp-local-bridge-setup
+description: Install and configure Super Productivity Local Go Bridge for MCP hosts
+version: "0.3.0"
+scope: cross-product
+requires-tools: []
+requires-products: []

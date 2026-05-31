@@ -16,8 +16,10 @@ export default defineConfig({
         text: "Guide",
         items: [
           { text: "Getting Started", link: "/getting-started" },
+          { text: "Install", link: "/install" },
           { text: "Operations", link: "/operations" },
           { text: "Architecture", link: "/architecture" },
+          { text: "Migration from Python", link: "/migration" },
         ],
       },
       {

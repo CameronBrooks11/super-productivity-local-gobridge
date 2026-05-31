@@ -182,9 +182,9 @@ func checkHostConfigs() []string {
 				configured = append(configured, c.name)
 			}
 		} else {
-			// Simple TOML check: look for the header line
-			header := fmt.Sprintf("[%s.%s]", c.serverKey, c.entryName)
-			if strings.Contains(string(data), header) {
+			// TOML check: verify the table header exists at start of line
+			// and has a command key in the following section.
+			if tomlHasEntry(string(data), c.serverKey, c.entryName) {
 				configured = append(configured, c.name)
 			}
 		}
@@ -194,6 +194,39 @@ func checkHostConfigs() []string {
 
 // expectedToolCount is the number of MCP tools the bridge should expose.
 const expectedToolCount = 16
+
+// tomlHasEntry checks if a TOML file contains a table header [serverKey.entryName]
+// at the start of a line, with a "command" key in the section body.
+// This is a line-based parse that avoids matching inside strings or comments.
+func tomlHasEntry(data, serverKey, entryName string) bool {
+	header := fmt.Sprintf("[%s.%s]", serverKey, entryName)
+	lines := strings.Split(data, "\n")
+	inSection := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Skip comments
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if trimmed == header {
+			inSection = true
+			continue
+		}
+		// Another table header ends our section
+		if inSection && strings.HasPrefix(trimmed, "[") {
+			break
+		}
+		if inSection && strings.HasPrefix(trimmed, "command") {
+			// Verify it's a key assignment (command = ...)
+			rest := strings.TrimPrefix(trimmed, "command")
+			rest = strings.TrimSpace(rest)
+			if strings.HasPrefix(rest, "=") {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // multicallAliases are the expected symlink/hardlink names.
 var multicallAliases = []string{

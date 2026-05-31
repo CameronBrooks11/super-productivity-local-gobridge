@@ -76,6 +76,45 @@ func TestCheckHostConfigsDetectsTOML(t *testing.T) {
 	}
 }
 
+func TestTomlHasEntryValid(t *testing.T) {
+	data := "[mcp_servers.superProductivity]\ncommand = \"sp-local-bridge\"\nargs = [\"mcp\"]\n"
+	if !tomlHasEntry(data, "mcp_servers", "superProductivity") {
+		t.Error("expected true for valid TOML entry")
+	}
+}
+
+func TestTomlHasEntryNoCommand(t *testing.T) {
+	// Has the header but no command key
+	data := "[mcp_servers.superProductivity]\nargs = [\"mcp\"]\n"
+	if tomlHasEntry(data, "mcp_servers", "superProductivity") {
+		t.Error("expected false when command key is missing")
+	}
+}
+
+func TestTomlHasEntryInComment(t *testing.T) {
+	// Header exists only in a comment
+	data := "# [mcp_servers.superProductivity]\ncommand = \"sp-local-bridge\"\n"
+	if tomlHasEntry(data, "mcp_servers", "superProductivity") {
+		t.Error("expected false when header is in a comment")
+	}
+}
+
+func TestTomlHasEntryDifferentSection(t *testing.T) {
+	// Command is in a different section
+	data := "[other.section]\ncommand = \"other\"\n\n[mcp_servers.superProductivity]\nargs = [\"mcp\"]\n"
+	if tomlHasEntry(data, "mcp_servers", "superProductivity") {
+		t.Error("expected false when command is in wrong section")
+	}
+}
+
+func TestTomlHasEntrySubstring(t *testing.T) {
+	// Header is a substring but not at line start
+	data := "x = \"[mcp_servers.superProductivity]\"\ncommand = \"sp-local-bridge\"\n"
+	if tomlHasEntry(data, "mcp_servers", "superProductivity") {
+		t.Error("expected false when header is inside a string value")
+	}
+}
+
 func TestCheckMCPSelfEmptyPath(t *testing.T) {
 	result := checkMCPSelf("")
 	if result != "cannot determine binary path" {

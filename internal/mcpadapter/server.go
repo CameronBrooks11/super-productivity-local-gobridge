@@ -46,21 +46,21 @@ var readOnlyAnnotations = map[string]any{
 	"readOnlyHint":    true,
 	"destructiveHint": false,
 	"idempotentHint":  true,
-	"openWorldHint":   true,
+	"openWorldHint":   false,
 }
 
 var mutatingAnnotations = map[string]any{
 	"readOnlyHint":    false,
 	"destructiveHint": false,
 	"idempotentHint":  false,
-	"openWorldHint":   true,
+	"openWorldHint":   false,
 }
 
 var idempotentMutatingAnnotations = map[string]any{
 	"readOnlyHint":    false,
 	"destructiveHint": false,
 	"idempotentHint":  true,
-	"openWorldHint":   true,
+	"openWorldHint":   false,
 }
 
 // Server is the MCP stdio server.

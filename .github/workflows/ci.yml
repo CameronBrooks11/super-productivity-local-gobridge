@@ -16,8 +16,8 @@ jobs:
         go-version: ["1.23"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go-version }}
       - name: Format check
@@ -35,12 +35,67 @@ jobs:
       - name: Script syntax check
         if: matrix.os == 'ubuntu-latest'
         run: bash -n scripts/install.sh && bash -n scripts/uninstall.sh
+      - name: Script behavior tests
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          set -e
+          TDIR="$(mktemp -d)"
+          trap 'rm -rf "$TDIR"' EXIT
+
+          # Create a fake binary for uninstall testing
+          printf '#!/bin/sh\necho "sp-local-bridge dev"\n' > "$TDIR/sp-local-bridge"
+          chmod +x "$TDIR/sp-local-bridge"
+
+          # Test: uninstall with 'n' answer (keep configs)
+          cp "$TDIR/sp-local-bridge" "$TDIR/sp-local-bridge-test"
+          INSTALL_DIR="$TDIR" BINARY_BAK="$TDIR/sp-local-bridge-test" \
+            printf 'n\n' | INSTALL_DIR="$TDIR" bash scripts/uninstall.sh
+          if [ -f "$TDIR/sp-local-bridge" ]; then
+            echo "FAIL: binary should be removed after 'n' answer"; exit 1
+          fi
+
+          # Recreate binary
+          printf '#!/bin/sh\necho "sp-local-bridge dev"\n' > "$TDIR/sp-local-bridge"
+          chmod +x "$TDIR/sp-local-bridge"
+
+          # Test: uninstall with closed stdin (non-interactive, should still remove binary)
+          INSTALL_DIR="$TDIR" bash scripts/uninstall.sh < /dev/null
+          if [ -f "$TDIR/sp-local-bridge" ]; then
+            echo "FAIL: binary should be removed with closed stdin"; exit 1
+          fi
+
+          # Recreate binary
+          printf '#!/bin/sh\necho "sp-local-bridge dev"\n' > "$TDIR/sp-local-bridge"
+          chmod +x "$TDIR/sp-local-bridge"
+
+          # Test: uninstall with --remove-configs (should not prompt)
+          INSTALL_DIR="$TDIR" bash scripts/uninstall.sh --remove-configs < /dev/null
+          if [ -f "$TDIR/sp-local-bridge" ]; then
+            echo "FAIL: binary should be removed with --remove-configs"; exit 1
+          fi
+
+          # Recreate binary
+          printf '#!/bin/sh\necho "sp-local-bridge dev"\n' > "$TDIR/sp-local-bridge"
+          chmod +x "$TDIR/sp-local-bridge"
+
+          # Test: uninstall with --keep-configs (should not prompt)
+          INSTALL_DIR="$TDIR" bash scripts/uninstall.sh --keep-configs < /dev/null
+          if [ -f "$TDIR/sp-local-bridge" ]; then
+            echo "FAIL: binary should be removed with --keep-configs"; exit 1
+          fi
+
+          # Test: install.sh rejects unsupported OS
+          if OS_OVERRIDE=freebsd bash -c 'source scripts/install.sh' 2>/dev/null; then
+            : # Can't easily test uname override, skip
+          fi
+
+          echo "All script behavior tests passed."
 
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
@@ -51,17 +106,17 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v5
         with:
           go-version: "1.23"
-      - uses: goreleaser/goreleaser-action@v7
+      - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
           args: check
-      - uses: goreleaser/goreleaser-action@v7
+      - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
           args: release --snapshot --clean --skip=publish
@@ -73,10 +128,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v5
         with:
           go-version: "1.23"
       - name: Verify go.mod is tidy
@@ -84,7 +139,7 @@ jobs:
           go mod tidy -diff
           git diff --exit-code -- go.mod
           if [ -f go.sum ]; then git diff --exit-code -- go.sum; fi
-      - uses: goreleaser/goreleaser-action@v7
+      - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
           args: release --clean

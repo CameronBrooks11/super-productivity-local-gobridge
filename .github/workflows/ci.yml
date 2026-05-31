@@ -16,8 +16,8 @@ jobs:
         go-version: ["1.23"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go-version }}
       - name: Format check
@@ -47,9 +47,7 @@ jobs:
           chmod +x "$TDIR/sp-local-bridge"
 
           # Test: uninstall with 'n' answer (keep configs)
-          cp "$TDIR/sp-local-bridge" "$TDIR/sp-local-bridge-test"
-          INSTALL_DIR="$TDIR" BINARY_BAK="$TDIR/sp-local-bridge-test" \
-            printf 'n\n' | INSTALL_DIR="$TDIR" bash scripts/uninstall.sh
+          printf 'n\n' | INSTALL_DIR="$TDIR" bash scripts/uninstall.sh
           if [ -f "$TDIR/sp-local-bridge" ]; then
             echo "FAIL: binary should be removed after 'n' answer"; exit 1
           fi
@@ -84,9 +82,12 @@ jobs:
             echo "FAIL: binary should be removed with --keep-configs"; exit 1
           fi
 
-          # Test: install.sh rejects unsupported OS
-          if OS_OVERRIDE=freebsd bash -c 'source scripts/install.sh' 2>/dev/null; then
-            : # Can't easily test uname override, skip
+          # Test: install.sh rejects unsupported OS (uses SP_TEST_OS env override)
+          if SP_TEST_OS=freebsd bash scripts/install.sh 2>/tmp/install-os-err; then
+            echo "FAIL: install.sh should reject unsupported OS"; exit 1
+          fi
+          if ! grep -q "supports Linux and macOS only" /tmp/install-os-err; then
+            echo "FAIL: install.sh error message missing"; cat /tmp/install-os-err; exit 1
           fi
 
           echo "All script behavior tests passed."
@@ -94,8 +95,8 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
@@ -106,17 +107,17 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.23"
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
           args: check
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
           args: release --snapshot --clean --skip=publish
@@ -128,10 +129,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.23"
       - name: Verify go.mod is tidy
@@ -139,7 +140,7 @@ jobs:
           go mod tidy -diff
           git diff --exit-code -- go.mod
           if [ -f go.sum ]; then git diff --exit-code -- go.sum; fi
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
           args: release --clean

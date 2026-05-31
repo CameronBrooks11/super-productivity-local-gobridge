@@ -11,8 +11,8 @@ INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 # but symlinks allow direct invocation for MCP hosts.
 ALIASES=(sp-local-bridge-mcp sp-local-bridge-doctor sp-local-bridge-print-config sp-local-bridge-configure)
 
-# Detect OS and arch
-OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+# Detect OS and arch (SP_TEST_OS allows testing without network calls)
+OS="${SP_TEST_OS:-$(uname -s | tr '[:upper:]' '[:lower:]')}"
 case "$OS" in
   linux|darwin) ;;
   *) echo "Error: install.sh supports Linux and macOS only. For Windows, download manually from Releases." >&2; exit 1 ;;

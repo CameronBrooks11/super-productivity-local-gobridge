@@ -1,6 +1,6 @@
 # Super Productivity Local Go Bridge
 
-> **Status: Pre-release** — CI passes on Linux, macOS, and Windows. MCP protocol shape is tested via black-box tests but not yet live-validated against host applications. See [Validation Status](https://cameronbrooks11.github.io/super-productivity-local-gobridge/validation-status).
+> **Status: Pre-release** — CI passes on Linux, macOS, and Windows. Live-validated with VS Code Copilot on Linux; Claude Desktop, Codex, and macOS/Windows live validation pending. See [Validation Status](https://cameronbrooks11.github.io/super-productivity-local-gobridge/validation-status).
 
 A local automation bridge for the [Super Productivity](https://super-productivity.com/) desktop app, written in Go. Provides CLI access and an MCP (Model Context Protocol) server for AI-assisted task management.
 

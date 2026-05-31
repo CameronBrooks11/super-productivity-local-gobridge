@@ -1,0 +1,58 @@
+version: 2
+
+project_name: sp-local-bridge
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: sp-local-bridge
+    main: ./cmd/sp-local-bridge
+    binary: sp-local-bridge
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/CameronBrooks11/super-productivity-local-gobridge/internal/version.Version={{.Version}}
+      - -X github.com/CameronBrooks11/super-productivity-local-gobridge/internal/version.Commit={{.Commit}}
+      - -X github.com/CameronBrooks11/super-productivity-local-gobridge/internal/version.Date={{.Date}}
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+release:
+  github:
+    owner: CameronBrooks11
+    name: super-productivity-local-gobridge
+  draft: false
+  prerelease: auto

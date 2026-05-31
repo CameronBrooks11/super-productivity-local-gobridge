@@ -61,16 +61,20 @@ If SP app is not running, warn but offer to proceed (config can be written witho
 
 ### 3a. Install the bridge (if not already installed)
 
-Determine the repo root (the directory containing this SKILL.md, two levels up):
+If not installed, install from the latest GitHub release (Linux/macOS):
 
 ```bash
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+curl -sSL https://raw.githubusercontent.com/CameronBrooks11/super-productivity-local-gobridge/main/scripts/install.sh | bash
 ```
 
-If not installed, run (Linux/macOS only; requires a published release):
+Or, if you have the repository checked out locally, identify the repo root as the
+directory containing `go.mod` and `scripts/install.sh`:
 
 ```bash
-cd "$REPO_ROOT" && scripts/install.sh
+REPO_ROOT="<path to checked-out super-productivity-local-gobridge>"
+# Verify:
+test -f "$REPO_ROOT/go.mod" && test -f "$REPO_ROOT/scripts/install.sh" || { echo "Error: REPO_ROOT is incorrect"; exit 1; }
+bash "$REPO_ROOT/scripts/install.sh"
 ```
 
 If already installed, skip.
@@ -89,10 +93,15 @@ If the host could not be detected, ask the user which host to configure.
 
 ### 3c. Create skills symlink
 
+If you have the repository checked out locally:
+
 ```bash
 mkdir -p ~/.agents/skills
 ln -sfn "$REPO_ROOT/skills/sp-local-bridge-setup" ~/.agents/skills/sp-local-bridge-setup
 ```
+
+If installed from release without a local checkout, skip this step (the skill is
+already loaded by the host through its normal skill discovery).
 
 ---
 
@@ -106,7 +115,7 @@ sp-local-bridge doctor
 
 All checks should pass. If SP connectivity fails, remind the user to:
 1. Open Super Productivity desktop app
-2. Enable Local REST API: Settings → Misc → Enable Local REST API
+2. Enable Local REST API: Settings → Sync & Export → Local REST API
 3. Re-run doctor
 
 ---

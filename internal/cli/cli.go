@@ -100,7 +100,11 @@ func handleTasks(ctx context.Context, service *bridge.Service, args []string) in
 
 	switch sub {
 	case "list":
-		flags, err := parseListFlags(args[1:], taskListAllowed)
+		var flagArgs []string
+		if len(args) > 0 {
+			flagArgs = args[1:]
+		}
+		flags, err := parseListFlags(flagArgs, taskListAllowed)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 			return 2

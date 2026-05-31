@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Complete Go rewrite — single static binary, zero runtime dependencies
 - MCP stdio server (hand-rolled JSON-RPC 2.0, protocol version 2024-11-05)
 - 16 MCP tools: task CRUD, time tracking, projects, tags, health, status
+- Structured content in MCP tool results (structuredContent field)
 - CLI with subcommands: health, status, tasks, projects, tags
 - Host configuration: claude-desktop, vscode-copilot, codex
 - `configure` command with --dry-run and --remove
@@ -19,11 +20,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Surgical TOML editing for Codex config (preserves other entries)
 - Atomic file writes with backup (.bak) for all host config formats
 - Doctor diagnostics: health, status, PATH, host config, task smoke test
+- Doctor MCP self-check (spawns binary, verifies 16 tools via protocol)
+- Doctor multicall alias validation
+- Doctor line-based TOML parse for Codex config detection
 - Multicall binary (symlink as sp-local-bridge-mcp, etc.)
-- Cross-platform CI (Linux, macOS, Windows)
+- VitePress documentation site (architecture, operations, hosts, security)
+- Setup skill for guided agent-driven installation
+- Cross-platform CI (Linux, macOS, Windows) with docs build
 - GoReleaser v2 release automation
+- GitHub Pages deployment workflow
 - Install script with fail-closed SHA256 checksum verification
 - Integer validation without float64 precision loss
+- Dependabot for Actions, Go modules, and npm
+- .editorconfig for consistent formatting
 
 ### Changed
 

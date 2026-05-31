@@ -6,7 +6,7 @@ Current validation state for the Go bridge across platforms and host application
 
 | Platform | CI Tests | Artifact Validation |
 |----------|----------|---------------------|
-| Linux x86_64 | Passing | v0.1.0-rc.1 validated (2026-05-31) |
+| Linux x86_64 | Passing | v0.1.1 validated (2026-05-31) |
 | macOS arm64 | Passing | Not yet validated |
 | macOS x86_64 | Passing | Not yet validated |
 | Windows x86_64 | Passing | Not yet validated |
@@ -16,7 +16,7 @@ Current validation state for the Go bridge across platforms and host application
 | Host | Config Generation | Config Write | Live Host Session |
 |------|-------------------|--------------|-------------------|
 | Claude Desktop | Tested (automated) | Tested (automated) | Not yet validated |
-| VS Code Copilot | Tested (automated) | Tested (automated) | v0.1.0-rc.1 validated (2026-05-31) |
+| VS Code Copilot | Tested (automated) | Tested (automated) | v0.1.1 validated (2026-05-31) |
 | Codex CLI | Tested (automated) | Tested (automated) | Not yet validated |
 
 "Live Host Session" means a human has connected the Go bridge to the specific host application and confirmed MCP tool invocations work end-to-end through the host's MCP client. This is distinct from raw stdio protocol validation below.
@@ -28,7 +28,7 @@ Raw MCP stdio protocol validation on Linux x86_64, 2026-05-31. Initially validat
 - Release workflow completed successfully (GoReleaser v7, all 6 platform archives published)
 - `checksums.txt` verified: all 6 archives pass `sha256sum -c`
 - Install script (`scripts/install.sh`) downloads, verifies checksum, extracts, and installs correctly
-- `sp-local-bridge --version` reports `0.1.0-rc.1` with correct commit and date
+- `sp-local-bridge --version` reports `0.1.1` with correct commit and date
 - `sp-local-bridge doctor` passes all checks (health, status, task list, MCP self-check 16 tools, multicall aliases)
 - `configure --dry-run` generates correct configs for claude-desktop, vscode-copilot, and codex
 - All 16 MCP tools invoked successfully via raw stdio:
@@ -44,11 +44,11 @@ Raw MCP stdio protocol validation on Linux x86_64, 2026-05-31. Initially validat
 - **Artifact Validation**: Release binary downloaded, checksum-verified, installed, and exercised via raw MCP stdio protocol.
 - **Live Host Session**: A human has connected the bridge inside the actual host application and confirmed tool invocations work through the host's MCP client.
 
-## VS Code Copilot Host Validation (v0.1.0-rc.1)
+## VS Code Copilot Host Validation (v0.1.1)
 
 Live host session validated on Linux x86_64, 2026-05-31:
 
-- Binary: v0.1.0-rc.1 installed via `scripts/install.sh` to `~/.local/bin`
+- Binary: v0.1.1 installed via `scripts/install.sh` to `~/.local/bin`
 - Config: `sp-local-bridge configure vscode-copilot` wrote to `~/.config/Code/User/mcp.json`
 - Tool discovery: VS Code Copilot discovered all 16 MCP tools after window reload
 - Live invocations confirmed through Copilot's MCP client:
@@ -57,4 +57,4 @@ Live host session validated on Linux x86_64, 2026-05-31:
 
 ## Parity with Python Bridge
 
-The Go bridge implements all 16 MCP tools from the Python bridge (v0.2.0). Black-box MCP tests verify request/response shapes match the Python SDK's output format. All 16 tools confirmed working via raw stdio artifact validation on Linux x86_64 (v0.1.0-rc.1). VS Code Copilot live host session validated (2026-05-31).
+The Go bridge implements all 16 MCP tools from the Python bridge (v0.2.0). Black-box MCP tests verify request/response shapes match the Python SDK's output format. All 16 tools confirmed working via raw stdio artifact validation on Linux x86_64 (v0.1.1). VS Code Copilot live host session validated (2026-05-31).

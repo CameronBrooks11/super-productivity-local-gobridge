@@ -11,7 +11,8 @@ Guide for migrating from the Python bridge (`sp-local-bridge` via `uv`/pip) to t
 | Binary name | `sp-local-bridge` | `sp-local-bridge` |
 | MCP tools | 16 tools | Same 16 tools |
 | Config format | Same JSON/TOML | Same JSON/TOML |
-| CLI interface | Same subcommands | Same subcommands |
+| CLI interface | Subcommands via separate binaries | Subcommands via single multicall binary |
+| Host config | `sp-local-bridge-print-config <host>` | `sp-local-bridge configure <host>` |
 
 ## Migration Steps
 

@@ -1,0 +1,60 @@
+/*
+ * SP Go Bridge — branded palette
+ * Blue primary (SP's brand), teal secondary, pink accent on hero
+ * Dark mode: charcoal background for contrast
+ */
+:root {
+  --vp-c-brand-1: #4385f4;
+  --vp-c-brand-2: #5a9af5;
+  --vp-c-brand-3: #3070e0;
+  --vp-c-brand-soft: rgba(67, 133, 244, 0.14);
+
+  --vp-c-tip-1: #00796b;
+  --vp-c-tip-2: #009688;
+  --vp-c-tip-3: #00695c;
+  --vp-c-tip-soft: rgba(0, 121, 107, 0.14);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(135deg, #4385f4 0%, #00bcd4 50%, #ff5994 100%);
+
+  --vp-home-hero-image-background-image: linear-gradient(135deg, rgba(67, 133, 244, 0.3) 0%, rgba(0, 188, 212, 0.3) 50%, rgba(255, 89, 148, 0.2) 100%);
+  --vp-home-hero-image-filter: blur(56px);
+}
+
+.dark {
+  --vp-c-brand-1: #5a9af5;
+  --vp-c-brand-2: #4385f4;
+  --vp-c-brand-3: #6eabf7;
+  --vp-c-brand-soft: rgba(90, 154, 245, 0.16);
+
+  --vp-c-bg: #0f0f0f;
+  --vp-c-bg-alt: #151515;
+  --vp-c-bg-elv: #1a1a1a;
+  --vp-c-bg-soft: #1e1e1e;
+
+  --vp-home-hero-name-background: linear-gradient(135deg, #5a9af5 0%, #4dd0e1 50%, #ff5994 100%);
+  --vp-home-hero-image-background-image: linear-gradient(135deg, rgba(90, 154, 245, 0.4) 0%, rgba(77, 208, 225, 0.3) 50%, rgba(255, 89, 148, 0.25) 100%);
+}
+
+/* Hero gradient text */
+.VPHero .name .clip {
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+/* Feature cards: teal icon tint */
+.VPFeature .icon {
+  color: var(--vp-c-tip-1);
+}
+
+/* Feature cards: subtle border glow on hover */
+.VPFeature:hover {
+  border-color: var(--vp-c-brand-soft);
+}
+
+/* Badge styling for "Go" emphasis */
+.VPBadge.tip {
+  background-color: var(--vp-c-tip-soft);
+  color: var(--vp-c-tip-1);
+}

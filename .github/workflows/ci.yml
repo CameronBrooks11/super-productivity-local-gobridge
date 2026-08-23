@@ -8,6 +8,12 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege by default: these jobs only read the repository.
+# A job needing more declares it itself, so the elevation stays visible
+# at the job that uses it.
+permissions:
+  contents: read
+
 jobs:
   test:
     strategy:

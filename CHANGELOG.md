@@ -57,6 +57,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Documentation no longer presents the Python bridge as a current option. It was
+  archived on 2026-09-05 and is read-only; the README, migration guide and docs
+  sidebar say so, and a rollback is marked as a stopgap rather than a
+  destination (#41)
+- The migration guide's rollback steps did not work. The install command named
+  a package that was never published to PyPI; the reconfigure step used a
+  subcommand the Python bridge does not have; and the steps were ordered so that
+  installing the Python bridge would abort on the Go bridge's own console
+  scripts, or silently reconfigure back to the Go bridge. Rewritten with the
+  release wheel URL, the correct executables, and removal ordered first. The
+  forward migration had the mirror-image fault: it removed the Python bridge
+  after installing the Go one, and `uv tool uninstall` deletes every executable
+  in its receipt regardless of who owns the file now — so following the guide
+  deleted the Go binary and all four aliases, leaving neither bridge installed
+  (#41)
+
 - Corrected fixtures that described responses Super Productivity does not send:
   the tag fixture used `name` where SP sends `title`, the health fixture
   invented a `status` field that a test then asserted (so both were wrong

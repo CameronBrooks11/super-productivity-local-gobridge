@@ -9,11 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `configure --status` reports which hosts have an MCP entry and where, reading
-  config files only so it works with SP closed. `scripts/install.sh` prints it
-  after installing: replacing the binary leaves host configs untouched, so an
-  upgrade could leave a host unconfigured with nothing to show for it except an
-  MCP client that later lists no tools (#12)
+- `configure --status` reports which hosts have an MCP entry and in which scope,
+  reading config files only so it works with SP closed. `scripts/install.sh`
+  prints it after installing: the script configures no host and leaves existing
+  configs untouched, so nothing previously told the user which hosts still
+  needed `configure`. An unconfigured host produces no error — the symptom is an
+  MCP client that lists no tools (#12)
 
 ### Fixed
 

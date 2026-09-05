@@ -946,3 +946,66 @@ func captureStdout(t *testing.T, fn func()) string {
 	w.Close()
 	return <-done
 }
+
+// --status runs before the mutating paths, so it has to reject rather than
+// quietly discard them: `configure --remove --status <host>` returning 0 with
+// the entry still in place is a destructive intent silently dropped.
+func TestRunConfigure_Status_RejectsRemove(t *testing.T) {
+	home := withTempHome(t)
+	writeHostConfig(t, home, HostClaudeDesktop,
+		`{"mcpServers":{"super-productivity":{"command":"sp-local-bridge"}}}`)
+
+	if code := RunConfigure([]string{"--remove", "--status", "claude-desktop"}); code != 2 {
+		t.Fatalf("expected exit 2, got %d", code)
+	}
+
+	d := detectionFor(t, HostClaudeDesktop)
+	if !d.Configured {
+		t.Error("the entry was removed despite the command being rejected")
+	}
+}
+
+func TestRunConfigure_Status_RejectsDryRun(t *testing.T) {
+	withTempHome(t)
+	if code := RunConfigure([]string{"--status", "--dry-run"}); code != 2 {
+		t.Fatalf("expected exit 2, got %d", code)
+	}
+}
+
+// --status reports on every host, so accepting a host argument would let
+// `configure --status <host> | grep configured` succeed on a different host.
+func TestRunConfigure_Status_RejectsHostArgument(t *testing.T) {
+	withTempHome(t)
+	if code := RunConfigure([]string{"--status", "claude-code"}); code != 2 {
+		t.Fatalf("expected exit 2, got %d", code)
+	}
+}
+
+// install.sh dropped its own copy of the host list in favour of this output, so
+// the names have to appear whether or not anything is configured yet.
+func TestRunConfigure_Status_AlwaysNamesSupportedHosts(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		configure bool
+	}{
+		{"nothing configured", false},
+		{"one host configured", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := withTempHome(t)
+			if tc.configure {
+				writeHostConfig(t, home, HostCodex,
+					"[mcp_servers.superProductivity]\ncommand = \"sp-local-bridge\"\n")
+			}
+			out := captureStdout(t, func() { RunConfigure([]string{"--status"}) })
+			for _, host := range sortedHostNames() {
+				if !strings.Contains(out, host) {
+					t.Errorf("host %q missing from output:\n%s", host, out)
+				}
+			}
+			if !strings.Contains(out, "Supported hosts:") {
+				t.Errorf("expected the supported-host list, got:\n%s", out)
+			}
+		})
+	}
+}

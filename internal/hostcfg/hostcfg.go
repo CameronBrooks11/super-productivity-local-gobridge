@@ -154,18 +154,16 @@ const (
 	ScopeLocal = "local"
 )
 
-// Detection reports whether one host has our MCP entry, and where it was found.
+// Detection reports whether one host has our MCP entry, and in which scope.
 type Detection struct {
 	Host       string
-	Path       string
 	Configured bool
 	// Scope is ScopeUser when the entry applies everywhere, ScopeLocal when it
 	// was found only against specific projects, and empty when not configured.
 	Scope string
-	// Projects lists the project directories carrying the entry, sorted. It is
-	// populated whenever such entries exist, including alongside a user-scope
-	// entry, so a caller can tell "configured everywhere" from "configured
-	// everywhere and pinned here too".
+	// Projects lists the project directories carrying the entry, sorted. A
+	// user-scope entry already applies everywhere, so when both exist Scope
+	// stays ScopeUser and this is only the extra detail.
 	Projects []string
 }
 
@@ -201,7 +199,7 @@ func DetectConfigured() []Detection {
 }
 
 func detectOne(t ConfigTarget, localScopeKey string) Detection {
-	d := Detection{Host: t.Name, Path: t.Path}
+	d := Detection{Host: t.Name}
 
 	data, err := os.ReadFile(t.Path)
 	if err != nil {
@@ -429,8 +427,23 @@ func RunConfigure(args []string) int {
 		}
 	}
 
-	// --status reports on every host, so it takes no host argument.
+	// --status reports on every host, so it takes no host argument and cannot
+	// be combined with a flag that writes. Accepting either silently would
+	// turn `configure --remove --status <host>` into an exit-0 no-op that
+	// leaves the entry in place, and would let `configure --status <host>`
+	// answer about hosts the caller did not ask about.
 	if status {
+		switch {
+		case remove:
+			fmt.Fprintln(os.Stderr, "Error: --status cannot be combined with --remove")
+			return 2
+		case dryRun:
+			fmt.Fprintln(os.Stderr, "Error: --status cannot be combined with --dry-run")
+			return 2
+		case len(remaining) > 0:
+			fmt.Fprintf(os.Stderr, "Error: --status reports on every host and takes no host argument (got '%s')\n", remaining[0])
+			return 2
+		}
 		printHostStatus()
 		return 0
 	}
@@ -457,10 +470,10 @@ func RunConfigure(args []string) int {
 }
 
 // printHostStatus reports, for every supported host, whether our MCP entry is
-// present. Installing replaces the binary and leaves host configs alone, so
-// after an upgrade this is the answer to "do I need to run configure again?".
-// It reads config files only and never contacts SP, so it stays usable from an
-// install script.
+// present. Installing replaces the binary and configures no host, so this is
+// the answer to "which hosts still need configure?" — a question nothing else
+// answered without running doctor. It reads config files only and never
+// contacts SP, so it stays usable from an install script.
 func printHostStatus() {
 	detections := DetectConfigured()
 	anyConfigured := false
@@ -476,12 +489,14 @@ func printHostStatus() {
 	}
 
 	fmt.Println()
-	if anyConfigured {
-		fmt.Println("Configure another with: sp-local-bridge configure <host>")
-		return
+	if !anyConfigured {
+		fmt.Println("No host is configured.")
 	}
-	fmt.Println("No host is configured. Configure one with:")
-	fmt.Printf("  sp-local-bridge configure <host>    (%s)\n", strings.Join(sortedHostNames(), ", "))
+	// The host names are printed in both cases: the caller being invited to
+	// configure another host is exactly the one who needs to know the valid
+	// values, and install.sh no longer prints its own copy of this list.
+	fmt.Println("Configure a host with: sp-local-bridge configure <host>")
+	fmt.Printf("  Supported hosts: %s\n", strings.Join(sortedHostNames(), ", "))
 }
 
 func configureUsage() {

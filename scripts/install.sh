@@ -196,10 +196,11 @@ if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
   echo ""
 fi
 
-# Host config status. Installing replaces the binary and leaves host configs
-# untouched, so an upgrade can leave a host unconfigured with no error to show
-# for it — the symptom is an MCP client that lists no tools. Report it here
-# rather than waiting for the user to find out.
+# Host config status. Installing configures no host and leaves existing host
+# configs untouched, so after this script finishes the user has no way to tell
+# which hosts still need `configure` short of running doctor. An unconfigured
+# host has no error to show for it — the symptom is an MCP client that lists no
+# tools — so report the state here.
 #
 # --status is newer than some installable versions, and VERSION can pin an older
 # one, so the output is captured: a version without the flag prints its usage

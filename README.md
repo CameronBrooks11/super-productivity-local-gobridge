@@ -4,7 +4,7 @@
 
 A local automation bridge for the [Super Productivity](https://super-productivity.com/) desktop app, written in Go. Provides CLI access and an MCP (Model Context Protocol) server for AI-assisted task management.
 
-Go rewrite of [super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge) (Python v0.2.0) targeting single-binary portability.
+Go rewrite of [super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge) (Python v0.2.0) targeting single-binary portability. **The Python bridge is archived and read-only** — this repo is where the work continues.
 
 **[Documentation Site](https://cameronbrooks11.github.io/super-productivity-local-gobridge/)**
 

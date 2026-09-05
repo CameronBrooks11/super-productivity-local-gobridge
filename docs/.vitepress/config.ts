@@ -37,7 +37,7 @@ export default defineConfig({
         text: "v0.1.1",
         items: [
           { text: "Changelog", link: "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases" },
-          { text: "Python Bridge (legacy)", link: "https://cameronbrooks11.github.io/super-productivity-local-bridge/" },
+          { text: "Python Bridge (archived)", link: "https://cameronbrooks11.github.io/super-productivity-local-bridge/" },
         ],
       },
     ],

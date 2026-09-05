@@ -1,12 +1,19 @@
 # Migration from Python Bridge
 
-Guide for migrating from the Python bridge (`sp-local-bridge` via `uv`/pip) to the Go bridge (single binary).
+Guide for migrating from the Python bridge to the Go bridge (single binary).
+
+::: warning The Python bridge is archived
+[super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge)
+was archived on 2026-09-05 and is read-only: no further fixes, releases, or
+dependency updates. Migration is one-way in practice — see
+[Rollback](#rollback) before relying on going back.
+:::
 
 ## What Changes
 
 | Aspect | Python Bridge | Go Bridge |
 |--------|--------------|-----------|
-| Install | `uv tool install` or `pip install` | Single binary download |
+| Install | `uv tool install <release wheel URL>` | Single binary download |
 | Runtime | Python 3.11+ required | None (static binary) |
 | Binary name | `sp-local-bridge` | `sp-local-bridge` |
 | MCP tools | 16 tools | Same 16 tools |
@@ -56,11 +63,36 @@ sp-local-bridge doctor
 
 ## Rollback
 
-To revert to the Python bridge:
+::: danger Rolling back lands on an archived project
+The Python bridge is read-only. It will not receive fixes, and it is pinned to
+whatever Super Productivity behaviour existed at v0.2.0. Treat a rollback as a
+stopgap while a problem here is reported, not as a destination.
+:::
 
-1. Reinstall: `uv tool install sp-local-bridge`
-2. Re-run: `sp-local-bridge configure <host>`
-3. Remove the Go binary from your PATH or delete it.
+The Python bridge was **never published to PyPI**. It installs from a GitHub
+release wheel or from a checkout:
+
+```sh
+uv tool install https://github.com/CameronBrooks11/super-productivity-local-bridge/releases/download/v0.2.0/sp_local_bridge-0.2.0-py3-none-any.whl
+```
+
+Or from source:
+
+```sh
+git clone https://github.com/CameronBrooks11/super-productivity-local-bridge.git
+cd super-productivity-local-bridge
+uv tool install .
+```
+
+Then:
+
+1. Re-run: `sp-local-bridge configure <host>`
+2. Remove the Go binary from your PATH or delete it.
+
+Earlier revisions of this page said `uv tool install sp-local-bridge`. That
+never worked, and `sp-local-bridge` is an **unclaimed name on PyPI** — anyone
+may register it, at which point the old instruction would install a stranger's
+package. Use the release URL above.
 
 ## Behavioral Differences
 

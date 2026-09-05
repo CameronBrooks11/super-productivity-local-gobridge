@@ -57,6 +57,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Documentation no longer presents the Python bridge as a current option. It was
+  archived on 2026-09-05 and is read-only; the README, migration guide and docs
+  sidebar say so, and a rollback is marked as a stopgap rather than a
+  destination (#41)
+- The migration guide's rollback step said `uv tool install sp-local-bridge`.
+  That never worked — the Python bridge was never published to PyPI — and
+  `sp-local-bridge` is an unclaimed PyPI name, so anyone could register it and
+  the instruction would have installed a stranger's package. It now uses the
+  GitHub release wheel URL (#41)
+
 - Corrected fixtures that described responses Super Productivity does not send:
   the tag fixture used `name` where SP sends `title`, the health fixture
   invented a `status` field that a test then asserted (so both were wrong

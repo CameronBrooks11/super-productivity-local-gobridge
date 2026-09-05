@@ -161,7 +161,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tasks add` takes the title as a single argument and parses the rest as
   flags, where it previously joined every trailing argument into the title.
   `tasks add buy milk` created a task called "buy milk" in 0.1.0 and fails in
-  0.1.1 with `Unknown flag: milk`, so an unquoted multi-word title has to be
+  0.1.1 with `Error: Unknown flag: milk`, so an unquoted multi-word title has to be
   quoted. Breaking for scripts that relied on the old joining
 
 ### Fixed
@@ -220,10 +220,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Python release (separate repo). See [super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge) for history.
 
-The Go bridge skips 0.2.x. The Python bridge released 0.1.x through 0.2.2
-under the same `sp-local-bridge` install name, so reusing those numbers here
-would make a version string ambiguous between two different programs. It
-resumes at 0.3.0.
+The Go bridge skips 0.2.x because the Python bridge had already spent it:
+0.2.0 in May 2026, and 0.2.1 and 0.2.2 on 2026-09-05 when the name was
+reserved on PyPI. The Go bridge's own 0.1.0 and 0.1.1 above do collide with
+Python tags of the same name, which is the confusion 0.3.0 stops repeating.
 
 [Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.0...HEAD
 [0.3.0]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.1.1...v0.3.0

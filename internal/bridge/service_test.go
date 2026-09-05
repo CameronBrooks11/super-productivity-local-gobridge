@@ -442,10 +442,10 @@ func TestService_BridgeHealth_OK(t *testing.T) {
 
 // --- task.archive existence check (#27) ---
 //
-// SP's archive route answers {"ok":true,"archived":true} for ids that never
-// existed, while get/update/start/restore all return TASK_NOT_FOUND. Agents
-// invent plausible-looking ids, so this was the one operation where an invented
-// one produced a confident success and the model had no signal to self-correct.
+// SP's archive route reports success for ids that never existed, while
+// get/update/start/restore all return TASK_NOT_FOUND. This was the one
+// operation where a mistaken or invented id produced a confident success, so
+// nothing signalled that the archive had not happened.
 
 // archiveServer records which paths were hit, so a test can assert that the
 // archive POST was never sent.
@@ -561,5 +561,32 @@ func TestService_TaskArchive_NotFoundCarriesDetails(t *testing.T) {
 	}
 	if got := result.Error.Details["status_code"]; got != 404 {
 		t.Fatalf("expected status_code 404, got %v", got)
+	}
+}
+
+// The details are forwarded from the underlying read rather than fabricated, so
+// an envelope-derived not-found keeps its own status code and sp_details
+// instead of being relabelled 404.
+func TestService_TaskArchive_ForwardsOriginalErrorDetails(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			// A 200 carrying SP's error envelope, not a bare 404.
+			w.Write([]byte(`{"ok":false,"error":{"code":"TASK_NOT_FOUND","message":"Task not found","details":{"why":"gone"}}}`))
+			return
+		}
+		t.Fatalf("archive POST must not be sent, got %s %s", r.Method, r.URL.Path)
+	}))
+	defer ts.Close()
+
+	result := archive(t, NewClient(ts.URL), "t1")
+	if result.OK || result.Error.Code != ErrTaskNotFound {
+		t.Fatalf("expected %s, got %+v", ErrTaskNotFound, result.Error)
+	}
+	if got := result.Error.Details["status_code"]; got != 200 {
+		t.Fatalf("status code must come from the response, not be fabricated as 404; got %v", got)
+	}
+	if _, ok := result.Error.Details["sp_details"]; !ok {
+		t.Fatalf("sp_details must survive, got %v", result.Error.Details)
 	}
 }

@@ -220,25 +220,33 @@ func handleTaskArchive(ctx context.Context, client *Client, payload map[string]j
 	}
 
 	// SP's archive route answers {"ok":true,"data":{"id":...,"archived":true}}
-	// for ids that never existed, unlike get, update, start and restore, which all return
-	// TASK_NOT_FOUND. Reporting success for a task that is not there is worse
-	// than a wrong exit code here: agents invent plausible-looking ids, and this
-	// is the one operation where an invented one produces a confident success,
-	// leaving the model no signal to correct itself.
+	// for ids that never existed, unlike get, update, start and restore, which
+	// all return TASK_NOT_FOUND. Passing that through reported a completed
+	// archive for a mistaken or invented id, with nothing to signal otherwise.
 	//
-	// The check is a plain read-before-write. Its TOCTOU window does not matter:
-	// if the task disappears in between, the archive is a no-op either way.
+	// GET is the right probe: it resolves only the active pool. Verified against
+	// SP 18.10.0 — a task confirmed present in the archive returns 404
+	// TASK_NOT_FOUND from GET /tasks/:id. That is also why an already-archived
+	// task reports not-found here.
+	//
+	// This narrows the window but does not close it. If the task is archived or
+	// deleted between the GET and the POST, the POST still goes out against an
+	// id no longer in the active entity map — and that is not benign: doing
+	// exactly that dispatched an action carrying no title, threw in SP's
+	// is-blank-task, killed an NgRx effect subscription and left its renderer
+	// store missing 223 of 277 task entities (see #27). Closing the window needs
+	// a fix on SP's side; the guard removes the common case, not the race.
 	if existing := client.GetTask(ctx, id); !existing.OK {
 		if existing.Error != nil && existing.Error.Code == ErrTaskNotFound {
 			// Restate it in terms of what was attempted. The client's generic
 			// "Resource not found." leaves the caller guessing whether the task
-			// or the route was missing, and whether anything happened.
-			// Carry the same details every other TASK_NOT_FOUND has, so this is
-			// not the one route whose error envelope lacks status_code.
+			// or the route was missing, and whether anything happened. Forward
+			// the original details rather than asserting a status code, which
+			// would fabricate one for an envelope-derived not-found.
 			return Failure(ErrTaskNotFound,
 				"Task not found in the active list; nothing was archived. "+
 					"An already-archived task reports this too.",
-				map[string]any{"status_code": 404})
+				existing.Error.Details)
 		}
 		// Anything else — SP unreachable, a timeout — passes through unchanged
 		// rather than being recast as a missing task.

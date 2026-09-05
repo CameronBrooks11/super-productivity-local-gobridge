@@ -280,8 +280,17 @@ nothing happened — the one operation where a mistaken id produced no signal to
 correct.
 
 Note that an **already-archived** task also reports `TASK_NOT_FOUND`, since it
-is no longer in the active list. Use `--source archived --include-done` to
-confirm whether it is already there before treating that as a failure.
+is no longer in the active list. `GET /tasks/:id` resolves the active pool only
+— verified against SP 18.10.0, where a task confirmed present in the archive
+returns 404 from that route. Use `--source archived --include-done` to check
+whether it is already there before treating this as a failure.
+
+The guard narrows the problem but does not eliminate it. If a task is archived
+or deleted by someone else between the check and the archive call, the call
+still goes out against an id no longer in the active pool. That case is not
+harmless — it is the one that crashed Super Productivity's renderer and left its
+in-memory store inconsistent — so closing the window needs a fix upstream. See
+the reports in the project's issue tracker.
 
 A transport failure is never recast as a missing task: if Super Productivity is
 unreachable, the error is `SP_UNAVAILABLE`.

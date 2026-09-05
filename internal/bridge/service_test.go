@@ -490,10 +490,10 @@ func TestService_TaskArchive_MissingTaskReportsNotFound(t *testing.T) {
 	if result.Error.Code != ErrTaskNotFound {
 		t.Fatalf("expected %s, got %s", ErrTaskNotFound, result.Error.Code)
 	}
-	// The message must say nothing was archived; "Resource not found." left the
-	// caller guessing whether anything had happened.
-	if !strings.Contains(result.Error.Message, "nothing was archived") {
-		t.Fatalf("message should say nothing happened, got: %s", result.Error.Message)
+	// The message must say why; the client's generic "Resource not found." left
+	// the caller guessing whether the task or the route was missing.
+	if !strings.Contains(result.Error.Message, "not in the active list") {
+		t.Fatalf("message should say why, got: %s", result.Error.Message)
 	}
 	for _, hit := range *hits {
 		if strings.Contains(hit, "/archive") {
@@ -568,6 +568,7 @@ func TestService_TaskArchive_NotFoundCarriesDetails(t *testing.T) {
 // an envelope-derived not-found keeps its own status code and sp_details
 // instead of being relabelled 404.
 func TestService_TaskArchive_ForwardsOriginalErrorDetails(t *testing.T) {
+	var unexpected string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodGet {
@@ -575,11 +576,18 @@ func TestService_TaskArchive_ForwardsOriginalErrorDetails(t *testing.T) {
 			w.Write([]byte(`{"ok":false,"error":{"code":"TASK_NOT_FOUND","message":"Task not found","details":{"why":"gone"}}}`))
 			return
 		}
-		t.Fatalf("archive POST must not be sent, got %s %s", r.Method, r.URL.Path)
+		// t.Fatalf here would only Goexit this handler goroutine, dropping the
+		// connection and surfacing downstream as a confusing SP_UNAVAILABLE.
+		// Record it and assert on the main goroutine instead.
+		unexpected = r.Method + " " + r.URL.Path
+		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer ts.Close()
 
 	result := archive(t, NewClient(ts.URL), "t1")
+	if unexpected != "" {
+		t.Fatalf("archive POST must not be sent, got %s", unexpected)
+	}
 	if result.OK || result.Error.Code != ErrTaskNotFound {
 		t.Fatalf("expected %s, got %+v", ErrTaskNotFound, result.Error)
 	}

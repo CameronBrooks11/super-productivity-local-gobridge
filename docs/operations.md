@@ -260,24 +260,34 @@ before archiving it, and returns `TASK_NOT_FOUND` when it is not:
 
 ```console
 $ sp-local-bridge tasks archive GHOST_ID
-Error [TASK_NOT_FOUND]: Task not found in the active list; nothing was archived. An already-archived task reports this too.
+Error [TASK_NOT_FOUND]: Task is not in the active list, so it was not archived now. It may already be archived, or never have existed.
 $ echo $?
 1
 ```
 
 This is a bridge-side guard. Super Productivity's own endpoint answers
 `{"ok":true,"data":{"id":"...","archived":true}}` for ids that never existed, unlike `get`,
-`update`, `start` and `restore`, which all return `TASK_NOT_FOUND`:
+`update`, `start` and `restore`, which all return `TASK_NOT_FOUND`.
 
-```console
-$ curl -s -X POST http://127.0.0.1:3876/tasks/GHOST_ID/archive
-{"ok":true,"data":{"id":"GHOST_ID","archived":true}}
+::: danger Do not reproduce this against a real store
+Posting to the archive route with an id that does not exist is what crashed
+Super Productivity's renderer and left its in-memory store inconsistent — see
+the note at the end of this section. There is deliberately no copy-pasteable
+command here.
+
+To confirm the upstream behaviour, use a throwaway profile:
+
+```bash
+superproductivity --user-data-dir=/tmp/sp-scratch
 ```
 
-The guard matters most for automation. An agent that invents a plausible-looking
-id would otherwise get a confident success and report a task archived when
-nothing happened — the one operation where a mistaken id produced no signal to
-correct.
+The API port is a hardcoded 3876 and Super Productivity takes a single-instance
+lock, so the real app must be closed first.
+:::
+
+The guard matters most for automation, where a mistaken or invented id would
+otherwise produce a confident success and be reported as a completed archive —
+the one operation that gave no signal to correct.
 
 Note that an **already-archived** task also reports `TASK_NOT_FOUND`, since it
 is no longer in the active list. `GET /tasks/:id` resolves the active pool only

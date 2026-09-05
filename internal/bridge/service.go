@@ -240,12 +240,14 @@ func handleTaskArchive(ctx context.Context, client *Client, payload map[string]j
 		if existing.Error != nil && existing.Error.Code == ErrTaskNotFound {
 			// Restate it in terms of what was attempted. The client's generic
 			// "Resource not found." leaves the caller guessing whether the task
-			// or the route was missing, and whether anything happened. Forward
+			// or the route was missing. It does not assert that nothing was
+			// archived: a timed-out or cancelled archive can succeed
+			// server-side, and a retry would then land here. Forward
 			// the original details rather than asserting a status code, which
 			// would fabricate one for an envelope-derived not-found.
 			return Failure(ErrTaskNotFound,
-				"Task not found in the active list; nothing was archived. "+
-					"An already-archived task reports this too.",
+				"Task is not in the active list, so it was not archived now. "+
+					"It may already be archived, or never have existed.",
 				existing.Error.Details)
 		}
 		// Anything else — SP unreachable, a timeout — passes through unchanged

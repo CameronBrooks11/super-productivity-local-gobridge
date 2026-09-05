@@ -154,9 +154,14 @@ $ sp-local-bridge doctor --json
 | Code | Meaning |
 |---|---|
 | 0 | All checks passed. |
-| 1 | A check failed (for example, SP is unreachable), or no verdict could be reached. |
+| 1 | A check failed (for example, SP is unreachable), or no verdict could be reached. **Takes precedence over 3**, so an unrelated failure later in the run (the MCP self-check, say) masks a confirmed anomaly in the summary line. |
 | 2 | Bad usage (unknown flag or unexpected argument). |
 | 3 | An anomaly survived both passes. `unconfirmed` may still be true if the passes disagreed about *other* ids — a race elsewhere does not make a twice-seen anomaly less real. |
+
+Because 1 outranks 3, a monitoring script should key on `doctor --json`, which
+runs only the integrity check and cannot be masked by an unrelated failure. The
+`--deep` exit code is for interactive use, where the printed report is visible
+alongside it.
 
 `--json` follows the same table, so a script can distinguish a corrupt store
 (3) from a connection failure (1) without parsing output. On bad usage it

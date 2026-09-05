@@ -812,3 +812,35 @@ func TestConfirmed_DisagreementHasNoFailureReason(t *testing.T) {
 		t.Fatalf("no request failed here; reason should be empty, got %q", r.UnconfirmedReason)
 	}
 }
+
+// Orphaned and Duplicated overlap: a task in both pools that nothing references
+// appears in both. Concatenating them raw reported one id as two.
+func TestConfirmed_FailedSecondPassDeduplicatesUnresolved(t *testing.T) {
+	round := 0
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/projects" {
+			round++
+			if round > 1 {
+				w.WriteHeader(500)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		enc := func(v any) { json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": v}) }
+		switch {
+		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
+			enc([]map[string]any{task("both")}) // in both pools
+		case r.URL.Path == "/tasks":
+			enc([]map[string]any{task("both")}) // and unreferenced
+		default:
+			enc([]map[string]any{})
+		}
+	})
+	r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(r.Unresolved) != 1 || r.Unresolved[0] != "both" {
+		t.Fatalf("an id appearing in two categories must be listed once, got %v", r.Unresolved)
+	}
+}

@@ -269,8 +269,18 @@ func CheckIntegrityConfirmed(ctx context.Context, client *bridge.Client) (Integr
 			Unconfirmed:       true,
 			UnconfirmedReason: err.Error(),
 		}
+		// Orphaned and Duplicated are not mutually exclusive — a task in both
+		// pools that nothing references lands in both — so concatenating raw
+		// would report one id twice and inflate the count.
+		seen := make(map[string]struct{})
 		for _, group := range [][]string{first.Dangling, first.Orphaned, first.Duplicated} {
-			unresolved.Unresolved = append(unresolved.Unresolved, group...)
+			for _, id := range group {
+				if _, dup := seen[id]; dup {
+					continue
+				}
+				seen[id] = struct{}{}
+				unresolved.Unresolved = append(unresolved.Unresolved, id)
+			}
 		}
 		sort.Strings(unresolved.Unresolved)
 		return unresolved, nil
@@ -355,8 +365,6 @@ func printIntegrity(report IntegrityReport) bool {
 			fmt.Println("    Flagged by only one of the two passes, so most likely the store")
 			fmt.Println("    being edited while the check ran.")
 		}
-	} else if report.UnconfirmedReason != "" {
-		fmt.Printf("  NOTE: the confirmation pass could not run (%s).\n", report.UnconfirmedReason)
 	}
 
 	if report.HasConfirmedAnomalies() {

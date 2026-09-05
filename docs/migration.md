@@ -69,30 +69,59 @@ whatever Super Productivity behaviour existed at v0.2.0. Treat a rollback as a
 stopgap while a problem here is reported, not as a destination.
 :::
 
-The Python bridge was **never published to PyPI**. It installs from a GitHub
-release wheel or from a checkout:
+**Order matters.** Both projects install console scripts with the same five
+names — `sp-local-bridge` and the `-mcp`, `-doctor`, `-print-config` and
+`-configure` variants — into the same directory (`~/.local/bin` by default).
+Installing the Python bridge while the Go one is still there fails with
+`Executable already exists: sp-local-bridge`.
+
+### 1. Remove the Go bridge first
+
+```sh
+scripts/uninstall.sh
+```
+
+Or by hand:
+
+```sh
+rm -f ~/.local/bin/sp-local-bridge \
+      ~/.local/bin/sp-local-bridge-{mcp,doctor,print-config,configure}
+```
+
+### 2. Install the Python bridge
+
+It is not on PyPI; install from its release wheel:
 
 ```sh
 uv tool install https://github.com/CameronBrooks11/super-productivity-local-bridge/releases/download/v0.2.0/sp_local_bridge-0.2.0-py3-none-any.whl
 ```
 
-Or from source:
+Or from a checkout:
 
 ```sh
 git clone https://github.com/CameronBrooks11/super-productivity-local-bridge.git
 cd super-productivity-local-bridge
-uv tool install .
+scripts/install.sh
 ```
 
-Then:
+### 3. Rewrite your host config
 
-1. Re-run: `sp-local-bridge configure <host>`
-2. Remove the Go binary from your PATH or delete it.
+The Python bridge has no `configure` subcommand — it ships separate
+executables:
 
-Earlier revisions of this page said `uv tool install sp-local-bridge`. That
-never worked, and `sp-local-bridge` is an **unclaimed name on PyPI** — anyone
-may register it, at which point the old instruction would install a stranger's
-package. Use the release URL above.
+```sh
+sp-local-bridge-configure <host>       # writes the config
+sp-local-bridge-print-config <host>    # prints it to add by hand
+```
+
+Doing this before step 1 would find the Go binary still on `PATH` and write a
+config pointing back at the Go bridge, leaving the rollback silently incomplete.
+
+### 4. Verify
+
+```sh
+sp-local-bridge-doctor
+```
 
 ## Behavioral Differences
 

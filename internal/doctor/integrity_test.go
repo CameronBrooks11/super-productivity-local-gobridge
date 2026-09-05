@@ -3,8 +3,10 @@ package doctor
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -46,12 +48,6 @@ func project(taskIDs ...string) map[string]any {
 
 func tag(taskIDs ...string) map[string]any {
 	return map[string]any{"id": "g1", "title": "g1", "taskIds": anyIDs(taskIDs...)}
-}
-
-// withIDs builds an object carrying exactly one index field, for the cases that
-// deliberately exercise a malformed or incomplete response.
-func withIDs(key string, ids ...string) map[string]any {
-	return map[string]any{"id": "x", "title": "x", key: anyIDs(ids...)}
 }
 
 func newStoreServer(t *testing.T, f storeFixture) *httptest.Server {
@@ -229,7 +225,7 @@ func TestRun_JSONReturnsThreeWhenStoreInconsistent(t *testing.T) {
 	code := runWithStore(t, storeFixture{
 		active:   []map[string]any{task("t1")},
 		projects: []map[string]any{project("t1", "GHOST")},
-	}, "doctor", "--json")
+	}, "--json")
 	if code != 3 {
 		t.Fatalf("inconsistent store via --json must exit 3, got %d", code)
 	}
@@ -239,7 +235,7 @@ func TestRun_JSONReturnsZeroWhenClean(t *testing.T) {
 	code := runWithStore(t, storeFixture{
 		active:   []map[string]any{task("t1")},
 		projects: []map[string]any{project("t1")},
-	}, "doctor", "--json")
+	}, "--json")
 	if code != 0 {
 		t.Fatalf("clean store via --json must exit 0, got %d", code)
 	}
@@ -248,7 +244,7 @@ func TestRun_JSONReturnsZeroWhenClean(t *testing.T) {
 func TestRun_JSONReturnsOneWhenUnreachable(t *testing.T) {
 	// Reserved-for-documentation port that nothing listens on.
 	t.Setenv("SP_BASE_URL", "http://127.0.0.1:1")
-	if code := Run([]string{"doctor", "--json"}); code != 1 {
+	if code := Run([]string{"--json"}); code != 1 {
 		t.Fatalf("unreachable SP must exit 1, not be confused with 3; got %d", code)
 	}
 }
@@ -256,19 +252,19 @@ func TestRun_JSONReturnsOneWhenUnreachable(t *testing.T) {
 // A mistyped flag used to be swallowed, running a shallow check that then
 // reported "All checks passed" — the user believed the integrity check ran.
 func TestRun_RejectsStrayPositional(t *testing.T) {
-	if code := Run([]string{"doctor", "deep"}); code != 2 {
+	if code := Run([]string{"deep"}); code != 2 {
 		t.Fatalf("stray positional must exit 2, got %d", code)
 	}
 }
 
 func TestRun_RejectsUnknownFlag(t *testing.T) {
-	if code := Run([]string{"doctor", "--nope"}); code != 2 {
+	if code := Run([]string{"--nope"}); code != 2 {
 		t.Fatalf("unknown flag must exit 2, got %d", code)
 	}
 }
 
 func TestRun_HelpExitsZero(t *testing.T) {
-	if code := Run([]string{"doctor", "--help"}); code != 0 {
+	if code := Run([]string{"--help"}); code != 0 {
 		t.Fatalf("--help must exit 0, got %d", code)
 	}
 }
@@ -606,7 +602,7 @@ func TestConfirmed_ShiftingAnomaliesAreNotReportedClean(t *testing.T) {
 func TestRun_ShiftingAnomaliesExitOneNotZero(t *testing.T) {
 	srv := shiftingServer(t)
 	t.Setenv("SP_BASE_URL", srv.URL)
-	if code := Run([]string{"doctor", "--json"}); code != 1 {
+	if code := Run([]string{"--json"}); code != 1 {
 		t.Fatalf("an unconfirmed report must exit 1, got %d", code)
 	}
 }
@@ -647,22 +643,27 @@ func TestConfirmed_FailedSecondPassIsUnconfirmed(t *testing.T) {
 	// return via the hard-error path, never exercising the unconfirmed case.
 	round = 0
 	t.Setenv("SP_BASE_URL", srv.URL)
-	if code := Run([]string{"doctor", "--json"}); code != 1 {
+	if code := Run([]string{"--json"}); code != 1 {
 		t.Fatalf("an unconfirmed report must exit 1, got %d", code)
 	}
 }
 
 // --json documents stdout as a JSON stream, so help must not land there.
 func TestRun_HelpWithJSONKeepsStdoutClean(t *testing.T) {
-	if code := Run([]string{"doctor", "--json", "--help"}); code != 0 {
+	if code := Run([]string{"--json", "--help"}); code != 0 {
 		t.Fatalf("--help must exit 0, got %d", code)
 	}
 }
 
-// The subcommand word is only legal as args[0].
-func TestRun_StrayDoctorTokenRejected(t *testing.T) {
-	if code := Run([]string{"doctor", "--deep", "doctor"}); code != 2 {
-		t.Fatalf("a repeated subcommand word is a typo; want exit 2, got %d", code)
+// main.go strips the subcommand word before calling Run, so seeing it here at
+// any position is a typo. It used to be tolerated at index 0, which meant the
+// multicall alias silently accepted `sp-local-bridge-doctor doctor` and ran a
+// shallow check while printing "All checks passed".
+func TestRun_SubcommandWordIsAlwaysRejected(t *testing.T) {
+	for _, args := range [][]string{{"doctor"}, {"--deep", "doctor"}, {"doctor", "--deep"}} {
+		if code := Run(args); code != 2 {
+			t.Errorf("Run(%v) must exit 2, got %d", args, code)
+		}
 	}
 }
 
@@ -714,7 +715,7 @@ func TestConfirmed_PersistentAnomalySurvivesATransientOne(t *testing.T) {
 
 func TestRun_ConfirmedAnomalyStillExitsThree(t *testing.T) {
 	t.Setenv("SP_BASE_URL", mixedServer(t).URL)
-	if code := Run([]string{"doctor", "--json"}); code != 3 {
+	if code := Run([]string{"--json"}); code != 3 {
 		t.Fatalf("a twice-seen anomaly must exit 3 even alongside a transient one, got %d", code)
 	}
 }
@@ -938,9 +939,99 @@ func TestIntegrity_MissingBacklogFieldIsAnError(t *testing.T) {
 	}
 }
 
+// Asserting only the exit code proves nothing here: last-wins returns 2 as
+// well. The message is the behaviour under test — naming the last bad argument
+// sends the user round the loop once per typo.
 func TestRun_ReportsFirstBadArgument(t *testing.T) {
-	// Naming the last one sends the user round the loop once per typo.
-	if code := Run([]string{"doctor", "--nope", "--alsonope"}); code != 2 {
+	stderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stderr = w
+	code := Run([]string{"--nope", "--alsonope"})
+	w.Close()
+	os.Stderr = stderr
+
+	out, _ := io.ReadAll(r)
+	if code != 2 {
 		t.Fatalf("want exit 2, got %d", code)
+	}
+	msg := string(out)
+	if !strings.Contains(msg, "--nope") {
+		t.Fatalf("should name the first bad argument, got: %s", msg)
+	}
+	if strings.Contains(msg, "--alsonope") {
+		t.Fatalf("should not name the later one, got: %s", msg)
+	}
+}
+
+// --- The other three collectIDs call sites ---
+//
+// The degenerate-payload tests above all go through /projects. Each remaining
+// call site is a separate guard that nothing else pins: dropping the
+// archivedTasks loop, for instance, would not fail any other test.
+
+func serverWithRaw(t *testing.T, path, query, body string) *httptest.Server {
+	t.Helper()
+	return rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == path && (query == "" || r.URL.Query().Get("source") == query) {
+			w.Write([]byte(`{"ok":true,"data":` + body + `}`))
+			return
+		}
+		switch {
+		case r.URL.Path == "/projects":
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{project()}})
+		case r.URL.Path == "/tasks":
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+		default:
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+		}
+	})
+}
+
+func TestIntegrity_TagMissingTaskIDsIsAnError(t *testing.T) {
+	srv := serverWithRaw(t, "/tags", "", `[{"id":"g1","title":"Today"}]`)
+	_, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err == nil {
+		t.Fatal("a tag without taskIds must be an error")
+	}
+	if !strings.Contains(err.Error(), "/tags") || !strings.Contains(err.Error(), "g1") {
+		t.Fatalf("error should name the endpoint and the tag, got: %v", err)
+	}
+}
+
+func TestIntegrity_ActiveTaskMissingSubTaskIDsIsAnError(t *testing.T) {
+	srv := serverWithRaw(t, "/tasks", "active", `[{"id":"t1","title":"t1"}]`)
+	_, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err == nil {
+		t.Fatal("an active task without subTaskIds must be an error")
+	}
+	if !strings.Contains(err.Error(), "t1") {
+		t.Fatalf("error should name the task, got: %v", err)
+	}
+}
+
+// The archived payload's shape differs from the active one (archived objects
+// carry a subTasks key that active objects lack), so this call site is the one
+// most likely to drift.
+func TestIntegrity_ArchivedTaskMissingSubTaskIDsIsAnError(t *testing.T) {
+	srv := serverWithRaw(t, "/tasks", "archived", `[{"id":"a1","title":"a1","subTasks":[]}]`)
+	_, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err == nil {
+		t.Fatal("an archived task without subTaskIds must be an error")
+	}
+	if !strings.Contains(err.Error(), "archived") || !strings.Contains(err.Error(), "a1") {
+		t.Fatalf("error should name the archived pool and the task, got: %v", err)
+	}
+}
+
+// The entity id is the most actionable thing in a real corruption event.
+func TestIntegrity_ErrorNamesTheOffendingEntity(t *testing.T) {
+	srv := serverWithProjects(t, `[{"id":"p_broken","title":"Inbox"}]`)
+	_, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err == nil || !strings.Contains(err.Error(), "p_broken") {
+		t.Fatalf("error should name the offending entity, got: %v", err)
 	}
 }

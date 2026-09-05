@@ -75,19 +75,23 @@ func idField(m map[string]any, key string) (string, bool) {
 // a clear error instead of a false verdict. An empty list stays legal: a project
 // with no tasks is normal.
 func collectIDs(dst map[string]struct{}, m map[string]any, endpoint string, keys ...string) error {
+	// objectsOrError has already guaranteed an id, so name it: in a real
+	// corruption event it is the most actionable thing we can hand the user,
+	// who would otherwise be searching hundreds of entities by hand.
+	owner, _ := idField(m, "id")
 	for _, key := range keys {
 		raw, present := m[key]
 		if !present {
-			return fmt.Errorf("%s: an entry is missing %q; cannot judge integrity", endpoint, key)
+			return fmt.Errorf("%s: %s is missing %q; cannot judge integrity", endpoint, owner, key)
 		}
 		arr, ok := raw.([]any)
 		if !ok {
-			return fmt.Errorf("%s: %q is %T, not a list; cannot judge integrity", endpoint, key, raw)
+			return fmt.Errorf("%s: %s has %q as %T, not a list; cannot judge integrity", endpoint, owner, key, raw)
 		}
 		for _, item := range arr {
 			id, ok := item.(string)
 			if !ok || id == "" {
-				return fmt.Errorf("%s: %q contains an entry that is not an id; cannot judge integrity", endpoint, key)
+				return fmt.Errorf("%s: %s has an entry in %q that is not an id; cannot judge integrity", endpoint, owner, key)
 			}
 			dst[id] = struct{}{}
 		}

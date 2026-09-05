@@ -177,6 +177,20 @@ store reported as corrupt — and because that result is deterministic it would
 survive both confirmation passes and be reported as confirmed. An empty list is
 legal: a project with no tasks is normal.
 
+A malformed index is reported as a **failed check (exit 1)**, not as an
+inconsistency (exit 3). That is deliberate: if a project's index cannot be read,
+the reference set cannot be trusted, and every task that project owns would look
+orphaned. Reporting "no verdict, here is the entity and field that broke" is
+honest where reporting corruption would be a guess.
+
+The practical consequence is that **monitoring should treat any non-zero exit as
+needing attention**, rather than keying on 3 alone. Exit 1 carries the reason on
+the same line:
+
+```console
+Store integrity... FAILED: /projects: p_broken is missing "taskIds"; cannot judge integrity
+```
+
 If any of the four pulls returns something that is not a list — `data: null`, an
 empty body, a non-JSON payload — the check reports an error naming that endpoint
 and exits 1 rather than reading it as "zero entities". Treating a degenerate

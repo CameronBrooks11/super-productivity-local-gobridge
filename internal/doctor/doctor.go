@@ -36,7 +36,7 @@ func Run(args []string) int {
 	wantHelp := false
 	var bad string
 
-	for i, arg := range args {
+	for _, arg := range args {
 		switch arg {
 		case "--deep":
 			deep = true
@@ -44,12 +44,6 @@ func Run(args []string) int {
 			asJSON = true
 		case "--help", "-h":
 			wantHelp = true
-		case "doctor":
-			// main.go forwards os.Args[1:], so the subcommand word arrives as
-			// args[0]. Only tolerate it there: `doctor --deep doctor` is a typo.
-			if i != 0 && bad == "" {
-				bad = arg
-			}
 		default:
 			// Ignoring an unrecognised argument silently meant `doctor deep`
 			// ran a shallow check and still printed "All checks passed", so the

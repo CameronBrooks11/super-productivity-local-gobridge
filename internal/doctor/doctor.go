@@ -22,11 +22,12 @@ import (
 // larger than anything the standard checks fetch.
 const deepTimeout = 60 * time.Second
 
-// deepTotalTimeout bounds the whole confirmation run. CheckIntegrityConfirmed
-// makes up to two passes of four requests, so sharing a single deepTimeout
-// across both would starve the second pass and mark every large store
-// unconfirmed.
-const deepTotalTimeout = 2*deepTimeout + 10*time.Second
+// deepTotalTimeout is the ceiling for the whole confirmation run: up to two
+// passes of four requests, each capped at deepTimeout. The per-request cap is
+// what actually bounds a hung request; this only stops the run as a whole from
+// outliving its worst case. Sizing it any tighter starves the second pass and
+// marks large stores unconfirmed.
+const deepTotalTimeout = 2 * 4 * deepTimeout
 
 // Run executes the doctor diagnostics. Returns exit code.
 func Run(args []string) int {
@@ -88,13 +89,15 @@ func Run(args []string) int {
 		}
 		fmt.Println(integrityJSON(report))
 		switch {
-		case !report.Confirmed():
-			// The passes disagreed, so there is no verdict. Exit 3 promises "SP
-			// answered and its data is broken"; claiming that from a single
-			// observation is the false positive confirmation exists to prevent.
-			return 1
-		case !report.Clean():
+		case report.HasConfirmedAnomalies():
+			// Survived both passes, so exit 3 regardless of anything else the
+			// run could not resolve.
 			return 3
+		case !report.Confirmed():
+			// Nothing seen twice. Exit 3 promises "SP answered and its data is
+			// broken"; claiming that from a single observation is the false
+			// positive confirmation exists to prevent.
+			return 1
 		default:
 			return 0
 		}
@@ -206,11 +209,13 @@ func Run(args []string) int {
 			fmt.Printf("FAILED: %s\n", err)
 			failures++
 		} else if !printIntegrity(report) {
-			if report.Confirmed() {
+			if report.HasConfirmedAnomalies() {
+				// Something survived both passes. A race elsewhere in the store
+				// does not make it less real, so it still gets exit 3.
 				inconsistent = true
 			} else {
-				// No verdict reached; treat it as a check that did not complete
-				// rather than as evidence the store is broken.
+				// Nothing was seen twice; treat it as a check that did not
+				// complete rather than as evidence the store is broken.
 				failures++
 			}
 		}

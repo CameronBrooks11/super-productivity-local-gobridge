@@ -143,8 +143,8 @@ $ sp-local-bridge doctor --json
   "duplicated": [],
   "orphaned": [],
   "referenced": 277,
-  "transient": 0,
-  "unconfirmed": false
+  "unconfirmed": false,
+  "unresolved": []
 }
 ```
 
@@ -178,16 +178,24 @@ UI between the task pull and the project pull would leave the new id in
 `project.taskIds` but not in the task set, which looks exactly like a dangling
 reference; deleting a project in that window makes its tasks look orphaned.
 
-So when the first pass finds anomalies, the check runs again and reports only
-those present in **both** passes. A genuine inconsistency persists; a race does
-not. `transient` counts the first-pass anomalies that were discarded, and a
-non-zero value simply means the store was being edited while the check ran.
+So when the first pass finds anomalies, the check runs again and sorts what it
+saw into two groups:
 
-`unconfirmed` is set when the two passes could not be reconciled — the second
-pass failed, or it saw anomalies the first did not. An unconfirmed report is
-**not a verdict in either direction**: its anomalies were seen once and may be a
-race, and a clean-looking one may be hiding anomalies only the second pass saw.
-It therefore exits 1, not 3 or 0. Re-run with the app idle.
+- **`dangling` / `orphaned` / `duplicated`** — seen in **both** passes. These are
+  confirmed and reported as an inconsistency (exit 3). A race elsewhere in the
+  store does not make them less real.
+- **`unresolved`** — seen by only one pass. Most often the store being edited
+  mid-check, but it could also be corruption appearing or clearing, so these are
+  recorded rather than discarded.
+
+`unconfirmed` is true when `unresolved` is non-empty, or when the confirmation
+pass could not run at all. If the confirmation pass fails, nothing was seen
+twice, so every anomaly moves to `unresolved` and none are reported as
+confirmed.
+
+`clean` is true only when neither pass saw anything. A report that is
+unconfirmed with no confirmed anomalies reaches no verdict and exits 1 — re-run
+with the app idle.
 
 ### If it warns
 

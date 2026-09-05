@@ -24,23 +24,30 @@ type IntegrityReport struct {
 	Orphaned      []string // active task that no index references
 	Duplicated    []string // present in both the active and archived pools
 
-	// Transient counts anomalies from the first pass that did not survive
-	// confirmation — the signature of the store changing mid-check.
-	Transient int
-	// Unconfirmed marks a report whose confirmation pass could not be run.
+	// Unresolved holds ids flagged by exactly one pass. They are neither
+	// confirmed nor dismissed: a race produces them, but so does corruption
+	// appearing or clearing mid-check.
+	Unresolved []string
+	// Unconfirmed marks a report the two passes could not reconcile — either
+	// Unresolved is non-empty, or the confirmation pass could not run.
 	Unconfirmed bool
 }
 
 // Clean reports whether the store is self-consistent.
 func (r IntegrityReport) Clean() bool {
-	return len(r.Dangling) == 0 && len(r.Orphaned) == 0 && len(r.Duplicated) == 0
+	return !r.HasConfirmedAnomalies() && len(r.Unresolved) == 0 && !r.Unconfirmed
 }
 
-// Confirmed reports whether the two passes agreed. An unconfirmed report is not
-// a verdict in either direction: its anomalies were seen once and may be a race,
-// and a clean-looking one may be hiding anomalies the second pass saw.
+// Confirmed reports whether the two passes agreed on everything.
 func (r IntegrityReport) Confirmed() bool {
 	return !r.Unconfirmed
+}
+
+// HasConfirmedAnomalies reports whether an anomaly survived both passes. These
+// stand on their own: a race elsewhere in the store does not make them less
+// real, so they are reported even when part of the run was inconclusive.
+func (r IntegrityReport) HasConfirmedAnomalies() bool {
+	return len(r.Dangling) > 0 || len(r.Orphaned) > 0 || len(r.Duplicated) > 0
 }
 
 // idField pulls a string id out of a decoded JSON object.
@@ -247,9 +254,20 @@ func CheckIntegrityConfirmed(ctx context.Context, client *bridge.Client) (Integr
 	second, err := CheckIntegrity(ctx, client)
 	if err != nil {
 		// The confirmation pull failed, so every anomaly was seen exactly once
-		// and may just be a race. Report it as unconfirmed, never as a verdict.
-		first.Unconfirmed = true
-		return first, nil
+		// and may just be a race. Move them out of the confirmed sets: nothing
+		// here survived two passes, and leaving them in would let the caller
+		// treat a single observation as a verdict.
+		unresolved := IntegrityReport{
+			ActiveTasks:   first.ActiveTasks,
+			ArchivedTasks: first.ArchivedTasks,
+			Referenced:    first.Referenced,
+			Unconfirmed:   true,
+		}
+		for _, group := range [][]string{first.Dangling, first.Orphaned, first.Duplicated} {
+			unresolved.Unresolved = append(unresolved.Unresolved, group...)
+		}
+		sort.Strings(unresolved.Unresolved)
+		return unresolved, nil
 	}
 
 	confirmed := second
@@ -257,20 +275,31 @@ func CheckIntegrityConfirmed(ctx context.Context, client *bridge.Client) (Integr
 	confirmed.Orphaned = intersect(first.Orphaned, second.Orphaned)
 	confirmed.Duplicated = intersect(first.Duplicated, second.Duplicated)
 
-	// Anomalies present in the first pass but not the second are transient.
-	confirmed.Transient = (len(first.Dangling) - len(confirmed.Dangling)) +
-		(len(first.Orphaned) - len(confirmed.Orphaned)) +
-		(len(first.Duplicated) - len(confirmed.Duplicated))
-
-	// Anomalies the second pass saw that the first did not were also seen only
-	// once. Dropping them silently would let a store the second pass found
-	// corrupt be reported clean.
-	appearedLate := (len(second.Dangling) - len(confirmed.Dangling)) +
-		(len(second.Orphaned) - len(confirmed.Orphaned)) +
-		(len(second.Duplicated) - len(confirmed.Duplicated))
-	if appearedLate > 0 {
-		confirmed.Unconfirmed = true
+	// Everything either pass flagged that the other did not was seen once. It is
+	// recorded rather than dropped — dropping it would let a store the second
+	// pass found broken be reported clean — but it does not gate the anomalies
+	// that did survive both passes.
+	agreed := make(map[string]struct{})
+	for _, group := range [][]string{confirmed.Dangling, confirmed.Orphaned, confirmed.Duplicated} {
+		for _, id := range group {
+			agreed[id] = struct{}{}
+		}
 	}
+	seenOnce := make(map[string]struct{})
+	for _, pass := range []IntegrityReport{first, second} {
+		for _, group := range [][]string{pass.Dangling, pass.Orphaned, pass.Duplicated} {
+			for _, id := range group {
+				if _, ok := agreed[id]; !ok {
+					seenOnce[id] = struct{}{}
+				}
+			}
+		}
+	}
+	for id := range seenOnce {
+		confirmed.Unresolved = append(confirmed.Unresolved, id)
+	}
+	sort.Strings(confirmed.Unresolved)
+	confirmed.Unconfirmed = len(confirmed.Unresolved) > 0
 	return confirmed, nil
 }
 
@@ -285,35 +314,22 @@ func sample(ids []string, n int) string {
 
 // printIntegrity renders the report. Returns true when the store is clean.
 func printIntegrity(report IntegrityReport) bool {
-	if report.Unconfirmed {
+	switch {
+	case report.HasConfirmedAnomalies():
+		fmt.Println("WARN")
+	case report.Unconfirmed:
 		fmt.Println("UNCONFIRMED")
-		fmt.Printf("  active tasks        : %d\n", report.ActiveTasks)
-		fmt.Printf("  archived tasks      : %d\n", report.ArchivedTasks)
-		fmt.Println()
-		fmt.Println("  The two passes disagreed, so no verdict could be reached. This")
-		fmt.Println("  usually means the store was being edited while the check ran, or")
-		fmt.Println("  Super Productivity became unreachable partway through.")
-		fmt.Println("  Re-run with the app idle.")
-		return false
-	}
-	if report.Clean() {
+	default:
 		fmt.Println("OK")
-		if report.Transient > 0 {
-			fmt.Printf("  (store changed during the check; %d transient anomal(ies) ignored)\n", report.Transient)
-		}
-		fmt.Printf("  active tasks        : %d\n", report.ActiveTasks)
-		fmt.Printf("  archived tasks      : %d\n", report.ArchivedTasks)
-		fmt.Printf("  referenced by index : %d\n", report.Referenced)
-		return true
 	}
 
-	fmt.Println("WARN")
 	fmt.Printf("  active tasks        : %d\n", report.ActiveTasks)
 	fmt.Printf("  archived tasks      : %d\n", report.ArchivedTasks)
 	fmt.Printf("  referenced by index : %d\n", report.Referenced)
+
 	if len(report.Dangling) > 0 {
 		fmt.Printf("  dangling references : %d  %s\n", len(report.Dangling), sample(report.Dangling, 3))
-		fmt.Println("    Projects or tags point at tasks that no longer exist.")
+		fmt.Println("    Projects or tags point at tasks that do not exist.")
 	}
 	if len(report.Orphaned) > 0 {
 		fmt.Printf("  orphaned tasks      : %d  %s\n", len(report.Orphaned), sample(report.Orphaned, 3))
@@ -324,14 +340,28 @@ func printIntegrity(report IntegrityReport) bool {
 		fmt.Println("    Tasks listed as both active and archived; an archive or restore")
 		fmt.Println("    was only partially applied.")
 	}
-	if report.Transient > 0 {
-		fmt.Printf("  (%d anomal(ies) from the first pass did not recur and were ignored)\n", report.Transient)
+	if len(report.Unresolved) > 0 {
+		fmt.Printf("  seen in one pass    : %d  %s\n", len(report.Unresolved), sample(report.Unresolved, 3))
+		fmt.Println("    Flagged by only one of the two passes, so most likely the store")
+		fmt.Println("    being edited while the check ran.")
+	} else if report.Unconfirmed {
+		fmt.Println("  NOTE: the confirmation pass could not run.")
 	}
-	fmt.Println()
-	fmt.Println("  The store is inconsistent. Restart Super Productivity and re-run.")
-	fmt.Println("  Do NOT import a backup taken while this warning is showing — backups are")
-	fmt.Println("  written from the same in-memory state and will capture the inconsistency.")
-	return false
+
+	if report.HasConfirmedAnomalies() {
+		fmt.Println()
+		fmt.Println("  The store is inconsistent. Restart Super Productivity and re-run.")
+		fmt.Println("  Do NOT import a backup taken while this warning is showing — backups are")
+		fmt.Println("  written from the same in-memory state and will capture the inconsistency.")
+		return false
+	}
+	if report.Unconfirmed {
+		fmt.Println()
+		fmt.Println("  No verdict: the two passes disagreed and nothing was seen twice.")
+		fmt.Println("  Re-run with the app idle.")
+		return false
+	}
+	return true
 }
 
 // integrityJSON renders the report as JSON for scripting.
@@ -351,7 +381,7 @@ func integrityJSON(report IntegrityReport) string {
 		"dangling":      ids(report.Dangling),
 		"orphaned":      ids(report.Orphaned),
 		"duplicated":    ids(report.Duplicated),
-		"transient":     report.Transient,
+		"unresolved":    ids(report.Unresolved),
 		"unconfirmed":   report.Unconfirmed,
 		"clean":         report.Clean(),
 	}

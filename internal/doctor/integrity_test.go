@@ -424,11 +424,14 @@ func TestConfirmed_TransientAnomalyIsDropped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !r.Clean() {
-		t.Fatalf("a transient anomaly must not be reported: %+v", r)
+	if r.HasConfirmedAnomalies() {
+		t.Fatalf("a transient anomaly must not be confirmed: %+v", r)
 	}
-	if r.Transient != 1 {
-		t.Fatalf("expected 1 transient anomaly recorded, got %d", r.Transient)
+	if r.Confirmed() {
+		t.Fatal("a one-pass-only anomaly leaves the run unconfirmed, not clean")
+	}
+	if len(r.Unresolved) != 1 || r.Unresolved[0] != "RACE" {
+		t.Fatalf("the transient id must be recorded as unresolved, got %v", r.Unresolved)
 	}
 }
 
@@ -445,8 +448,8 @@ func TestConfirmed_PersistentAnomalyIsKept(t *testing.T) {
 	if len(r.Dangling) != 1 || r.Dangling[0] != "GHOST" {
 		t.Fatalf("a persistent anomaly must survive confirmation, got %v", r.Dangling)
 	}
-	if r.Transient != 0 {
-		t.Fatalf("nothing was transient here, got %d", r.Transient)
+	if len(r.Unresolved) != 0 {
+		t.Fatalf("nothing was unresolved here, got %v", r.Unresolved)
 	}
 }
 
@@ -528,7 +531,7 @@ func TestIntegrityJSON_ContainsDocumentedKeys(t *testing.T) {
 	for _, key := range []string{
 		"activeTasks", "archivedTasks", "referenced",
 		"dangling", "orphaned", "duplicated",
-		"transient", "unconfirmed", "clean",
+		"unresolved", "unconfirmed", "clean",
 	} {
 		if _, ok := parsed[key]; !ok {
 			t.Errorf("documented key %q missing from --json output", key)
@@ -580,7 +583,7 @@ func TestConfirmed_ShiftingAnomaliesAreNotReportedClean(t *testing.T) {
 	if r.Confirmed() {
 		t.Fatal("passes disagreed; the report must be marked unconfirmed")
 	}
-	if !r.Clean() {
+	if r.HasConfirmedAnomalies() {
 		t.Fatal("precondition: the intersection here is empty")
 	}
 }
@@ -624,10 +627,13 @@ func TestConfirmed_FailedSecondPassIsUnconfirmed(t *testing.T) {
 	if r.Confirmed() {
 		t.Fatal("a failed confirmation pass must mark the report unconfirmed")
 	}
+	// round is captured by the handler closure and is already past its first
+	// value, so without resetting it Run's *first* pass would take the 500 and
+	// return via the hard-error path, never exercising the unconfirmed case.
+	round = 0
 	t.Setenv("SP_BASE_URL", srv.URL)
-	// Fresh rounds for the Run() call; the anomaly persists, the confirmation fails.
-	if code := Run([]string{"doctor", "--json"}); code == 3 {
-		t.Fatal("an unconfirmed report must not claim exit 3")
+	if code := Run([]string{"doctor", "--json"}); code != 1 {
+		t.Fatalf("an unconfirmed report must exit 1, got %d", code)
 	}
 }
 
@@ -642,5 +648,114 @@ func TestRun_HelpWithJSONKeepsStdoutClean(t *testing.T) {
 func TestRun_StrayDoctorTokenRejected(t *testing.T) {
 	if code := Run([]string{"doctor", "--deep", "doctor"}); code != 2 {
 		t.Fatalf("a repeated subcommand word is a typo; want exit 2, got %d", code)
+	}
+}
+
+// A confirmed anomaly stands on its own. A race elsewhere in the store does not
+// make it less real, and gating it behind "unconfirmed" meant one transient id
+// could permanently mask corruption on a live app — which is the only kind of
+// app --deep is ever run against.
+func mixedServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	round := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		enc := func(v any) { json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": v}) }
+		switch {
+		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
+			enc([]map[string]any{})
+		case r.URL.Path == "/tasks":
+			enc([]map[string]any{task("t1")})
+		case r.URL.Path == "/projects":
+			round++
+			ids := []string{"t1", "GHOST"} // GHOST persists
+			if round == 2 {
+				ids = append(ids, "LATE") // LATE appears once
+			}
+			enc([]map[string]any{withIDs("taskIds", ids...)})
+		default:
+			enc([]map[string]any{})
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestConfirmed_PersistentAnomalySurvivesATransientOne(t *testing.T) {
+	r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(mixedServer(t).URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !r.HasConfirmedAnomalies() {
+		t.Fatal("GHOST was seen twice and must be confirmed")
+	}
+	if len(r.Dangling) != 1 || r.Dangling[0] != "GHOST" {
+		t.Fatalf("confirmed set should hold only GHOST, got %v", r.Dangling)
+	}
+	if len(r.Unresolved) != 1 || r.Unresolved[0] != "LATE" {
+		t.Fatalf("LATE was seen once and belongs in Unresolved, got %v", r.Unresolved)
+	}
+}
+
+func TestRun_ConfirmedAnomalyStillExitsThree(t *testing.T) {
+	t.Setenv("SP_BASE_URL", mixedServer(t).URL)
+	if code := Run([]string{"doctor", "--json"}); code != 3 {
+		t.Fatalf("a twice-seen anomaly must exit 3 even alongside a transient one, got %d", code)
+	}
+}
+
+// clean must never be true when either pass saw an anomaly: a script doing
+// `doctor --json | jq -e .clean` would otherwise read true for a store both
+// passes found broken.
+func TestIntegrityJSON_NotCleanWhenAnythingWasSeen(t *testing.T) {
+	for name, report := range map[string]IntegrityReport{
+		"confirmed":   {Dangling: []string{"GHOST"}},
+		"unresolved":  {Unresolved: []string{"G1", "G2"}, Unconfirmed: true},
+		"unconfirmed": {Unconfirmed: true},
+	} {
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(integrityJSON(report)), &parsed); err != nil {
+			t.Fatalf("%s: invalid JSON: %v", name, err)
+		}
+		if parsed["clean"] == true {
+			t.Errorf("%s: clean must not be true, got %s", name, integrityJSON(report))
+		}
+	}
+}
+
+// When the confirmation pass cannot run, nothing was seen twice, so the
+// confirmed sets must be empty rather than holding the first pass's findings.
+func TestConfirmed_FailedSecondPassConfirmsNothing(t *testing.T) {
+	round := 0
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/projects" {
+			round++
+			if round > 1 {
+				w.WriteHeader(500)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		enc := func(v any) { json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": v}) }
+		switch {
+		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
+			enc([]map[string]any{})
+		case r.URL.Path == "/tasks":
+			enc([]map[string]any{task("t1")})
+		case r.URL.Path == "/projects":
+			enc([]map[string]any{withIDs("taskIds", "t1", "GHOST")})
+		default:
+			enc([]map[string]any{})
+		}
+	})
+	r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r.HasConfirmedAnomalies() {
+		t.Fatalf("nothing survived two passes; confirmed sets must be empty, got %+v", r)
+	}
+	if len(r.Unresolved) != 1 || r.Unresolved[0] != "GHOST" {
+		t.Fatalf("the single observation belongs in Unresolved, got %v", r.Unresolved)
 	}
 }

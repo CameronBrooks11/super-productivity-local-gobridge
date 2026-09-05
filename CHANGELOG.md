@@ -41,8 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than a success. Believing the body over the status turned a failed request
   into a successful one — and for `archive`, whose guard reads a task to decide
   whether it exists, a 404 would have been read as "it exists" and the archive
-  attempted anyway
-
+  attempted anyway (#37)
+- `archive_task` only archives when its existence probe returns the task itself.
+  A successful status alone was enough before, so an empty body, a non-JSON body
+  or `{"ok":true,"data":null}` all read as "the task exists" and the archive was
+  attempted for an id never confirmed (#37)
 - `archive_task` / `tasks archive` verifies the task exists before archiving and
   returns `TASK_NOT_FOUND` otherwise. Super Productivity's archive endpoint
   reports success for ids that never existed, unlike every other single-task

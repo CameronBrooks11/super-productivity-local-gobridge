@@ -131,8 +131,14 @@ set is closed.
 only when SP's 404 body is an envelope whose `error.code` is `TASK_NOT_FOUND` —
 which is what SP 18.10.0 sends. If that body ever changes shape, the guard
 reports the underlying error instead (`SP_ERROR`, say) rather than the friendly
-message below. It still fails closed either way: the archive is not attempted
-when the read is inconclusive.
+message below.
+
+The safety property does not depend on that wording. The archive is attempted
+only when the probe hands back the task it asked for — a JSON object whose `id`
+matches. A successful HTTP status is not sufficient on its own, because an empty
+body, a non-JSON body and `{"ok":true,"data":null}` all translate to a success
+with no data; treating any of those as "the task exists" would send the archive
+call for an id that was never confirmed.
 
 ## Intentionally Excluded
 

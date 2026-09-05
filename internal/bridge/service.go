@@ -210,6 +210,18 @@ func handleTaskSetCurrent(ctx context.Context, client *Client, payload map[strin
 	return client.SetCurrentTask(ctx, &taskID)
 }
 
+// confirmsTask reports whether a probe response actually carried the task that
+// was asked for. A successful status is not enough: several shapes translate to
+// Success(nil), and archiving on the strength of one would defeat the guard.
+func confirmsTask(data any, id string) bool {
+	obj, ok := data.(map[string]any)
+	if !ok {
+		return false
+	}
+	got, _ := obj["id"].(string)
+	return got == id
+}
+
 func handleTaskArchive(ctx context.Context, client *Client, payload map[string]json.RawMessage) Result {
 	if r := validateIDOnly(payload); r != nil {
 		return *r
@@ -224,10 +236,10 @@ func handleTaskArchive(ctx context.Context, client *Client, payload map[string]j
 	// all return TASK_NOT_FOUND. Passing that through reported a completed
 	// archive for a mistaken or invented id, with nothing to signal otherwise.
 	//
-	// The branch below keys on SP's own TASK_NOT_FOUND, so it depends on the
-	// 404 body shape SP 18.10.0 sends. If that changes, the underlying error
-	// surfaces instead of the friendly message — degraded, but still closed:
-	// an inconclusive read never reaches the POST.
+	// The not-found branch keys on SP's own TASK_NOT_FOUND, so the friendly
+	// message depends on the 404 body shape SP 18.10.0 sends. If that changes,
+	// the underlying error surfaces instead — degraded wording, same safety:
+	// the POST is only reached when the probe returned the task itself.
 	//
 	// GET is the right probe: it resolves only the active pool. Verified against
 	// SP 18.10.0 — a task confirmed present in the archive returns 404
@@ -258,6 +270,15 @@ func handleTaskArchive(ctx context.Context, client *Client, payload map[string]j
 		// Anything else — SP unreachable, a timeout — passes through unchanged
 		// rather than being recast as a missing task.
 		return existing
+	} else if !confirmsTask(existing.Data, id) {
+		// A 2xx does not by itself confirm anything. An empty body, a non-JSON
+		// body and {"ok":true,"data":null} all translate to Success(nil), and
+		// treating those as "the task exists" would send the archive POST for an
+		// id never actually confirmed — the same call this guard exists to
+		// prevent. Require the probe to hand back the task it was asked for.
+		return Failure(ErrSPError,
+			"Could not confirm the task exists; nothing was archived.",
+			map[string]any{"task_id": id})
 	}
 	return client.ArchiveTask(ctx, id)
 }

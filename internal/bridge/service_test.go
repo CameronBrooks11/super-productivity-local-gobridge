@@ -750,3 +750,67 @@ func TestClient_SuccessEnvelopeOnOKStatusStillSucceeds(t *testing.T) {
 		t.Fatalf("a 200 with ok:true must succeed, got %+v", result.Error)
 	}
 }
+
+// A successful status does not confirm a task. An empty body, a non-JSON body
+// and {"ok":true,"data":null} all translate to Success(nil), and archiving on
+// the strength of one would send the POST for an id never confirmed — the same
+// call the guard exists to prevent.
+func TestService_TaskArchive_UnconfirmedProbeDoesNotArchive(t *testing.T) {
+	cases := map[string]string{
+		"empty body":         "",
+		"non-JSON body":      "<html>ok</html>",
+		"data is null":       `{"ok":true,"data":null}`,
+		"wrong task id":      `{"ok":true,"data":{"id":"someone-else","title":"x"}}`,
+		"data not an object": `{"ok":true,"data":[{"id":"t1"}]}`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			var posted bool
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					w.WriteHeader(http.StatusOK)
+					if body != "" {
+						w.Write([]byte(body))
+					}
+					return
+				}
+				posted = true
+				w.Write([]byte(`{"ok":true,"data":{"id":"t1","archived":true}}`))
+			}))
+			defer ts.Close()
+
+			result := archive(t, NewClient(ts.URL), "t1")
+			if posted {
+				t.Fatal("the archive POST must not be sent when the probe did not confirm the task")
+			}
+			if result.OK {
+				t.Fatal("expected failure")
+			}
+			if !strings.Contains(result.Error.Message, "Could not confirm") {
+				t.Fatalf("message should say the task was unconfirmed, got: %s", result.Error.Message)
+			}
+		})
+	}
+}
+
+// The normal path: the probe returns the task, so the archive proceeds.
+func TestService_TaskArchive_ConfirmedProbeArchives(t *testing.T) {
+	var posted bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			w.Write([]byte(`{"ok":true,"data":{"id":"t1","title":"real"}}`))
+			return
+		}
+		posted = true
+		w.Write([]byte(`{"ok":true,"data":{"id":"t1","archived":true}}`))
+	}))
+	defer ts.Close()
+
+	if result := archive(t, NewClient(ts.URL), "t1"); !result.OK {
+		t.Fatalf("a confirmed task must still archive, got %+v", result.Error)
+	}
+	if !posted {
+		t.Fatal("expected the archive POST")
+	}
+}

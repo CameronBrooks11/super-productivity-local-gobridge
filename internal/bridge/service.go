@@ -219,8 +219,8 @@ func handleTaskArchive(ctx context.Context, client *Client, payload map[string]j
 		return *r
 	}
 
-	// SP's archive route answers {"ok":true,"archived":true} for ids that never
-	// existed, unlike get, update, start and restore, which all return
+	// SP's archive route answers {"ok":true,"data":{"id":...,"archived":true}}
+	// for ids that never existed, unlike get, update, start and restore, which all return
 	// TASK_NOT_FOUND. Reporting success for a task that is not there is worse
 	// than a wrong exit code here: agents invent plausible-looking ids, and this
 	// is the one operation where an invented one produces a confident success,
@@ -233,9 +233,12 @@ func handleTaskArchive(ctx context.Context, client *Client, payload map[string]j
 			// Restate it in terms of what was attempted. The client's generic
 			// "Resource not found." leaves the caller guessing whether the task
 			// or the route was missing, and whether anything happened.
+			// Carry the same details every other TASK_NOT_FOUND has, so this is
+			// not the one route whose error envelope lacks status_code.
 			return Failure(ErrTaskNotFound,
 				"Task not found in the active list; nothing was archived. "+
-					"An already-archived task reports this too.")
+					"An already-archived task reports this too.",
+				map[string]any{"status_code": 404})
 		}
 		// Anything else — SP unreachable, a timeout — passes through unchanged
 		// rather than being recast as a missing task.

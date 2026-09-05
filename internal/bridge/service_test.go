@@ -449,7 +449,7 @@ func TestService_BridgeHealth_OK(t *testing.T) {
 
 // archiveServer records which paths were hit, so a test can assert that the
 // archive POST was never sent.
-func archiveServer(t *testing.T, taskExists bool) (*httptest.Server, *Client, *[]string) {
+func archiveServer(t *testing.T, taskExists bool) (*Client, *[]string) {
 	t.Helper()
 	var hits []string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -470,7 +470,7 @@ func archiveServer(t *testing.T, taskExists bool) (*httptest.Server, *Client, *[
 		}
 	}))
 	t.Cleanup(ts.Close)
-	return ts, NewClient(ts.URL), &hits
+	return NewClient(ts.URL), &hits
 }
 
 func archive(t *testing.T, client *Client, id string) Result {
@@ -482,7 +482,7 @@ func archive(t *testing.T, client *Client, id string) Result {
 }
 
 func TestService_TaskArchive_MissingTaskReportsNotFound(t *testing.T) {
-	_, client, hits := archiveServer(t, false)
+	client, hits := archiveServer(t, false)
 	result := archive(t, client, "t1")
 	if result.OK {
 		t.Fatal("archiving a task that does not exist must not report success")
@@ -503,7 +503,7 @@ func TestService_TaskArchive_MissingTaskReportsNotFound(t *testing.T) {
 }
 
 func TestService_TaskArchive_ExistingTaskStillArchives(t *testing.T) {
-	_, client, hits := archiveServer(t, true)
+	client, hits := archiveServer(t, true)
 	result := archive(t, client, "t1")
 	if !result.OK {
 		t.Fatalf("archiving an existing task must still work, got %+v", result.Error)
@@ -547,5 +547,19 @@ func TestService_TaskArchive_RejectsExtraFields(t *testing.T) {
 	})
 	if result.OK || result.Error.Code != ErrInvalidInput {
 		t.Fatalf("expected %s, got %+v", ErrInvalidInput, result.Error)
+	}
+}
+
+// Every other TASK_NOT_FOUND carries status_code in details; archive must not
+// be the one route whose envelope omits it, since the MCP adapter serializes
+// details unconditionally and hosts branch on it.
+func TestService_TaskArchive_NotFoundCarriesDetails(t *testing.T) {
+	client, _ := archiveServer(t, false)
+	result := archive(t, client, "t1")
+	if result.Error == nil || result.Error.Details == nil {
+		t.Fatalf("expected details on the error, got %+v", result.Error)
+	}
+	if got := result.Error.Details["status_code"]; got != 404 {
+		t.Fatalf("expected status_code 404, got %v", got)
 	}
 }

@@ -34,7 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returns `TASK_NOT_FOUND` otherwise. Super Productivity's archive endpoint
   reports success for ids that never existed, unlike every other single-task
   route, so a mistaken or invented id was reported as a completed archive (#27)
-
 - `doctor --deep` treats a missing or malformed index field as unreadable rather
   than as an empty index. Reading one as zero references turned every task it
   owned into an orphan, reporting a healthy store as corrupt — and

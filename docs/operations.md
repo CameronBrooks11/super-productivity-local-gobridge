@@ -266,7 +266,7 @@ $ echo $?
 ```
 
 This is a bridge-side guard. Super Productivity's own endpoint answers
-`{"ok":true,"archived":true}` for ids that never existed, unlike `get`,
+`{"ok":true,"data":{"id":"...","archived":true}}` for ids that never existed, unlike `get`,
 `update`, `start` and `restore`, which all return `TASK_NOT_FOUND`:
 
 ```console

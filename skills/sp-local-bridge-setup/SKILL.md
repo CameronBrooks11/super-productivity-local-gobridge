@@ -77,19 +77,29 @@ If not installed, install from the latest GitHub release (Linux/macOS):
 curl -sSL https://raw.githubusercontent.com/CameronBrooks11/super-productivity-local-gobridge/main/scripts/install.sh | bash
 ```
 
-Or, if you have the repository checked out locally, identify the repo root as the
-directory containing `go.mod` and `scripts/install.sh`:
+Or, if you have the repository checked out locally, build from the checkout with
+`--from-source`. This matters: **without that flag the script downloads the
+latest published release and ignores the checkout entirely**, so a checkout
+ahead of the last tag installs older code with no warning.
 
 ```bash
 REPO_ROOT="<path to checked-out super-productivity-local-gobridge>"
 # Verify:
 test -f "$REPO_ROOT/go.mod" && test -f "$REPO_ROOT/scripts/install.sh" || { echo "Error: REPO_ROOT is incorrect"; exit 1; }
-bash "$REPO_ROOT/scripts/install.sh"
+bash "$REPO_ROOT/scripts/install.sh" --from-source
 ```
 
-If already installed, check whether a newer version is available by comparing
-the installed version against the latest GitHub release tag. If a newer version
-exists, re-run the install script above to update. If already at latest, skip.
+If already installed, decide whether to update by comparing against the source
+you are installing from — not always the release tag:
+
+- **With a local checkout**: compare `sp-local-bridge --version` against
+  `git -C "$REPO_ROOT" describe --tags --always --dirty`. These differ whenever
+  the checkout has commits since the last tag, and the release tag alone cannot
+  reveal that. If they differ, re-run with `--from-source`.
+- **Without a checkout**: compare against the latest GitHub release tag and
+  re-run the curl install if it is newer.
+
+If already current for that source, skip.
 
 ### 3b. Configure the detected host
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/CameronBrooks11/super-productivity-local-gobridge/internal/bridge"
+	"github.com/CameronBrooks11/super-productivity-local-gobridge/internal/hostcfg"
 	"github.com/CameronBrooks11/super-productivity-local-gobridge/internal/version"
 )
 
@@ -138,54 +139,28 @@ func Run(args []string) int {
 
 // checkHostConfigs returns list of host names whose config files contain our entry.
 func checkHostConfigs() []string {
-	type hostCheck struct {
-		name      string
-		path      string
-		serverKey string
-		entryName string
-		format    string
-	}
-
-	home, _ := os.UserHomeDir()
-	checks := []hostCheck{
-		{"claude-desktop", filepath.Join(home, ".config", "Claude", "claude_desktop_config.json"), "mcpServers", "super-productivity", "json"},
-		{"vscode-copilot", filepath.Join(home, ".config", "Code", "User", "mcp.json"), "servers", "superProductivity", "json"},
-		{"codex", filepath.Join(home, ".codex", "config.toml"), "mcp_servers", "superProductivity", "toml"},
-	}
-
-	if runtime.GOOS == "darwin" {
-		checks[0].path = filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")
-		checks[1].path = filepath.Join(home, "Library", "Application Support", "Code", "User", "mcp.json")
-	} else if runtime.GOOS == "windows" {
-		appData := os.Getenv("APPDATA")
-		if appData == "" {
-			appData = filepath.Join(home, "AppData", "Roaming")
-		}
-		checks[0].path = filepath.Join(appData, "Claude", "claude_desktop_config.json")
-		checks[1].path = filepath.Join(appData, "Code", "User", "mcp.json")
-		// codex path stays the same (~/.codex/config.toml)
-	}
+	checks := hostcfg.ConfigTargets()
 
 	var configured []string
 	for _, c := range checks {
-		data, err := os.ReadFile(c.path)
+		data, err := os.ReadFile(c.Path)
 		if err != nil {
 			continue
 		}
-		if c.format == "json" {
+		if c.Format == "json" {
 			var obj map[string]any
 			if json.Unmarshal(data, &obj) != nil {
 				continue
 			}
-			servers, _ := obj[c.serverKey].(map[string]any)
-			if servers != nil && servers[c.entryName] != nil {
-				configured = append(configured, c.name)
+			servers, _ := obj[c.ServerKey].(map[string]any)
+			if servers != nil && servers[c.EntryName] != nil {
+				configured = append(configured, c.Name)
 			}
 		} else {
 			// TOML check: verify the table header exists at start of line
 			// and has a command key in the following section.
-			if tomlHasEntry(string(data), c.serverKey, c.entryName) {
-				configured = append(configured, c.name)
+			if tomlHasEntry(string(data), c.ServerKey, c.EntryName) {
+				configured = append(configured, c.Name)
 			}
 		}
 	}

@@ -16,14 +16,22 @@ except at the single checkpoint in Phase 2.
 Run these checks silently and collect the results:
 
 1. **Bridge installed** — run `sp-local-bridge --version 2>/dev/null`. If it
-   succeeds, the bridge is already installed.
+   succeeds, the bridge is already installed. Note the version; you will
+   compare it in Phase 3a against whichever source you install from.
 2. **SP app running** — run `curl -sf http://127.0.0.1:3876/health`. If it
    fails, the Super Productivity desktop app is not running or Local REST API is
    not enabled.
 3. **Detect platform** — check `uname -s` (Linux/Darwin) and `uname -m`.
 4. **Detect agent** — determine which host to configure:
    - First, use your own identity context: if you know you are running inside
-     VS Code Copilot, Claude Desktop, Codex, or another host, use that directly.
+     Claude Code, VS Code Copilot, Claude Desktop, Codex, or another host, use
+     that directly. **Claude Code and Claude Desktop are different hosts** with
+     separate config files; do not treat one as the other.
+   - Otherwise, check for Claude Code **before** checking VS Code: if
+     `$CLAUDECODE` is set, or `claude --version` succeeds and you are running as
+     a CLI agent → claude-code. Claude Code running in a VS Code integrated
+     terminal inherits `$VSCODE_PID`, so checking VS Code first misdetects it as
+     vscode-copilot and writes the wrong host's config.
    - Otherwise check environment: `$VSCODE_PID` or `$VSCODE_IPC_HOOK_CLI` set → vscode-copilot
    - Otherwise check if `codex --version` succeeds → codex
    - If still unknown → ask the user which host to configure
@@ -43,7 +51,7 @@ Prerequisite        Status
 Bridge installed    ✓ version / ✗ not installed
 SP app              ✓ reachable / ✗ not running
 Platform            linux/amd64 / darwin/arm64 / etc.
-Host detected       vscode-copilot / claude-desktop / codex / unknown
+Host detected       claude-code / vscode-copilot / claude-desktop / codex / unknown
 Config written      ✓ / ✗
 Skills symlink      ✓ / ✗
 ```
@@ -69,19 +77,29 @@ If not installed, install from the latest GitHub release (Linux/macOS):
 curl -sSL https://raw.githubusercontent.com/CameronBrooks11/super-productivity-local-gobridge/main/scripts/install.sh | bash
 ```
 
-Or, if you have the repository checked out locally, identify the repo root as the
-directory containing `go.mod` and `scripts/install.sh`:
+Or, if you have the repository checked out locally, build from the checkout with
+`--from-source`. This matters: **without that flag the script downloads the
+latest published release and ignores the checkout entirely**, so a checkout
+ahead of the last tag installs older code with no warning.
 
 ```bash
 REPO_ROOT="<path to checked-out super-productivity-local-gobridge>"
 # Verify:
 test -f "$REPO_ROOT/go.mod" && test -f "$REPO_ROOT/scripts/install.sh" || { echo "Error: REPO_ROOT is incorrect"; exit 1; }
-bash "$REPO_ROOT/scripts/install.sh"
+bash "$REPO_ROOT/scripts/install.sh" --from-source
 ```
 
-If already installed, check whether a newer version is available by comparing
-the installed version against the latest GitHub release tag. If a newer version
-exists, re-run the install script above to update. If already at latest, skip.
+If already installed, decide whether to update by comparing against the source
+you are installing from — not always the release tag:
+
+- **With a local checkout**: compare `sp-local-bridge --version` against
+  `git -C "$REPO_ROOT" describe --tags --always --dirty`. These differ whenever
+  the checkout has commits since the last tag, and the release tag alone cannot
+  reveal that. If they differ, re-run with `--from-source`.
+- **Without a checkout**: compare against the latest GitHub release tag and
+  re-run the curl install if it is newer.
+
+If already current for that source, skip.
 
 ### 3b. Configure the detected host
 
@@ -91,7 +109,16 @@ Run the configure command:
 sp-local-bridge configure <detected-host>
 ```
 
-Where `<detected-host>` is one of: `vscode-copilot`, `claude-desktop`, `codex`.
+Where `<detected-host>` is one of: `claude-code`, `vscode-copilot`,
+`claude-desktop`, `codex`.
+
+For `claude-code` this writes user scope (`~/.claude.json`), which applies to
+every project. If the user wants the bridge in one project only, use Claude
+Code's own CLI instead:
+
+```bash
+claude mcp add -s local super-productivity -- "$(command -v sp-local-bridge)" mcp
+```
 
 If the host could not be detected, ask the user which host to configure.
 

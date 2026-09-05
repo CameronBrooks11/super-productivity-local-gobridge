@@ -6,12 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 )
 
 // Supported host identifiers.
 const (
 	HostClaudeDesktop = "claude-desktop"
+	HostClaudeCode    = "claude-code"
 	HostVSCodeCopilot = "vscode-copilot"
 	HostCodex         = "codex"
 )
@@ -22,6 +24,16 @@ type hostMeta struct {
 	serverKey  string // top-level key in the config file
 	entryName  string // our entry name within that key
 	configPath func() string
+}
+
+// appDataDir returns %APPDATA%, falling back to the conventional location when
+// the variable is unset. Without the fallback, filepath.Join("", ...) yields a
+// path relative to the working directory.
+func appDataDir() string {
+	if ad := os.Getenv("APPDATA"); ad != "" {
+		return ad
+	}
+	return filepath.Join(homeDir(), "AppData", "Roaming")
 }
 
 // homeDir returns the user's home directory.
@@ -46,10 +58,24 @@ var hosts = map[string]hostMeta{
 			case "darwin":
 				return filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")
 			case "windows":
-				return filepath.Join(os.Getenv("APPDATA"), "Claude", "claude_desktop_config.json")
+				return filepath.Join(appDataDir(), "Claude", "claude_desktop_config.json")
 			default:
 				return filepath.Join(home, ".config", "Claude", "claude_desktop_config.json")
 			}
+		},
+	},
+	// Claude Code is the CLI agent, a distinct host from Claude Desktop with its
+	// own config file. Writing the top-level "mcpServers" key configures it at
+	// user scope (available in every project). Claude Code also supports project
+	// and local scopes, which live elsewhere in this file and in per-project
+	// .mcp.json; those are left to `claude mcp add`, since they depend on the
+	// working directory rather than on a single fixed path per host.
+	HostClaudeCode: {
+		format:    "json",
+		serverKey: "mcpServers",
+		entryName: "super-productivity",
+		configPath: func() string {
+			return filepath.Join(homeDir(), ".claude.json")
 		},
 	},
 	HostVSCodeCopilot: {
@@ -62,7 +88,7 @@ var hosts = map[string]hostMeta{
 			case "darwin":
 				return filepath.Join(home, "Library", "Application Support", "Code", "User", "mcp.json")
 			case "windows":
-				return filepath.Join(os.Getenv("APPDATA"), "Code", "User", "mcp.json")
+				return filepath.Join(appDataDir(), "Code", "User", "mcp.json")
 			default:
 				return filepath.Join(home, ".config", "Code", "User", "mcp.json")
 			}
@@ -77,6 +103,35 @@ var hosts = map[string]hostMeta{
 			return filepath.Join(home, ".codex", "config.toml")
 		},
 	},
+}
+
+// ConfigTarget describes where a host keeps its MCP configuration and how our
+// entry is identified inside it. It exists so that callers which only need to
+// *inspect* host configs (doctor) do not have to restate the platform-specific
+// paths, which is how a newly supported host ends up invisible to diagnostics.
+type ConfigTarget struct {
+	Name      string
+	Path      string
+	ServerKey string
+	EntryName string
+	Format    string // "json" or "toml"
+}
+
+// ConfigTargets returns one entry per supported host, in stable name order.
+func ConfigTargets() []ConfigTarget {
+	names := sortedHostNames()
+	targets := make([]ConfigTarget, 0, len(names))
+	for _, name := range names {
+		meta := hosts[name]
+		targets = append(targets, ConfigTarget{
+			Name:      name,
+			Path:      meta.configPath(),
+			ServerKey: meta.serverKey,
+			EntryName: meta.entryName,
+			Format:    meta.format,
+		})
+	}
+	return targets
 }
 
 // --- Command resolution ---
@@ -98,8 +153,8 @@ func buildEntry(host string) map[string]any {
 		"command": cmd,
 		"args":    []string{"mcp"},
 	}
-	// VS Code Copilot needs "type": "stdio"
-	if host == HostVSCodeCopilot {
+	// VS Code Copilot and Claude Code both record the transport explicitly.
+	if host == HostVSCodeCopilot || host == HostClaudeCode {
 		entry["type"] = "stdio"
 	}
 	return entry
@@ -253,6 +308,22 @@ func configureUsage() {
 	}
 }
 
+// fingerprint captures size and mtime so a read-modify-write can tell that
+// something else changed the file in between. Claude Code rewrites
+// ~/.claude.json while it runs, and rewriting the whole file from a stale read
+// would silently revert whatever it wrote.
+func fingerprint(path string) string {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d:%d", fi.Size(), fi.ModTime().UnixNano())
+}
+
+func concurrentModification(configPath, before string) bool {
+	return fingerprint(configPath) != before
+}
+
 // --- JSON config manipulation ---
 
 func addEntry(hostName, configPath string, meta hostMeta, dryRun bool) int {
@@ -263,6 +334,7 @@ func addEntry(hostName, configPath string, meta hostMeta, dryRun bool) int {
 	}
 
 	// JSON host
+	before := fingerprint(configPath)
 	existing, err := readJSON(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot parse %s\n", configPath)
@@ -286,6 +358,12 @@ func addEntry(hostName, configPath string, meta hostMeta, dryRun bool) int {
 		return 0
 	}
 
+	if concurrentModification(configPath, before) {
+		fmt.Fprintf(os.Stderr, "Error: %s changed while we were editing it.\n", configPath)
+		fmt.Fprintln(os.Stderr, "  Nothing was written. Close the host application and re-run.")
+		return 1
+	}
+
 	if err := writeJSON(configPath, existing); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing config: %v\n", err)
 		return 1
@@ -294,6 +372,11 @@ func addEntry(hostName, configPath string, meta hostMeta, dryRun bool) int {
 	fmt.Printf("✓ Configured %s\n", hostName)
 	fmt.Printf("  Written to: %s\n", configPath)
 	fmt.Printf("  Restart %s to pick up the change.\n", hostName)
+	if hostName == HostClaudeCode {
+		fmt.Println("  Note: Claude Code rewrites this file as it runs. A session that was")
+		fmt.Println("  already open can overwrite this entry when it exits — if the entry is")
+		fmt.Println("  missing later, close all sessions and re-run this command.")
+	}
 	return 0
 }
 
@@ -308,6 +391,7 @@ func removeEntry(configPath string, meta hostMeta, dryRun bool) int {
 		return removeTOMLEntry(configPath, meta, dryRun)
 	}
 
+	before := fingerprint(configPath)
 	existing, err := readJSON(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot parse %s\n", configPath)
@@ -334,6 +418,12 @@ func removeEntry(configPath string, meta hostMeta, dryRun bool) int {
 		enc.SetIndent("", "  ")
 		enc.Encode(existing)
 		return 0
+	}
+
+	if concurrentModification(configPath, before) {
+		fmt.Fprintf(os.Stderr, "Error: %s changed while we were editing it.\n", configPath)
+		fmt.Fprintln(os.Stderr, "  Nothing was written. Close the host application and re-run.")
+		return 1
 	}
 
 	if err := writeJSON(configPath, existing); err != nil {
@@ -575,9 +665,21 @@ func readJSON(path string) (map[string]any, error) {
 	if text == "" {
 		return make(map[string]any), nil
 	}
+	// UseNumber keeps numbers as their original literal instead of decoding to
+	// float64. Host configs are rewritten wholesale, so a float64 round-trip
+	// would rewrite every number in a file we only meant to add one key to, and
+	// would silently lose precision on integers above 2^53.
+	dec := json.NewDecoder(strings.NewReader(text))
+	dec.UseNumber()
 	var result map[string]any
-	if err := json.Unmarshal([]byte(text), &result); err != nil {
+	if err := dec.Decode(&result); err != nil {
 		return nil, err
+	}
+	// Decode stops after the first JSON value, so unlike json.Unmarshal it would
+	// accept a file corrupted by a doubled or partially appended write and let us
+	// rewrite it with only the leading object. Reject that instead.
+	if dec.More() {
+		return nil, fmt.Errorf("unexpected data after top-level JSON value")
 	}
 	return result, nil
 }
@@ -594,13 +696,22 @@ func writeJSON(path string, data map[string]any) error {
 }
 
 func backup(path string) {
-	if _, err := os.Stat(path); err == nil {
-		backupPath := path + ".bak"
-		// Best-effort copy
-		src, err := os.ReadFile(path)
-		if err == nil {
-			os.WriteFile(backupPath, src, 0o644)
-		}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	backupPath := path + ".bak"
+	// Best-effort copy. Mirror the source file's mode rather than defaulting to
+	// 0644: host configs can hold account identifiers and session state, so a
+	// 0600 original must not be copied to a world-readable .bak. WriteFile
+	// leaves the mode alone if the backup already exists, hence the Chmod.
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	mode := fi.Mode().Perm()
+	if os.WriteFile(backupPath, src, mode) == nil {
+		os.Chmod(backupPath, mode)
 	}
 }
 
@@ -638,6 +749,14 @@ func atomicWrite(path, content string) error {
 
 // --- Helpers ---
 
+// sortedHostNames derives the supported host list from the hosts map rather
+// than restating it, so a newly added host cannot be missing from `--help`,
+// the unknown-host error, or doctor's config detection.
 func sortedHostNames() []string {
-	return []string{HostClaudeDesktop, HostCodex, HostVSCodeCopilot}
+	names := make([]string, 0, len(hosts))
+	for name := range hosts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

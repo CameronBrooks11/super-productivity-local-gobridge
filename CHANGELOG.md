@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `claude-code` host target for `configure` and `print-config`, writing user
+  scope in `~/.claude.json`. Claude Code is a separate host from Claude Desktop
+  and was previously not configurable at all (#25)
+- `install.sh --from-source` (also `SP_FROM_SOURCE=1`) builds and installs the
+  local checkout. Previously running the script from a checkout silently
+  installed the latest published release instead (#23)
+- `hostcfg.ConfigTargets()`, so `doctor` inspects host configs from the same
+  table `configure` writes from instead of a private copy
+
+### Fixed
+
+- `--source archived` needing `--include-done` is now documented in CLI help,
+  the `list_tasks` MCP tool description, and the operations reference. SP
+  applies the done filter to the archived pool whatever a task's `isDone`
+  value, so `--source archived` alone returns an empty list and reads as a
+  failed archive (#24, follow-up to #8)
+- Host config JSON is no longer round-tripped through `float64`. Integers above
+  2^53 were silently rewritten, which matters now that `configure` edits
+  `~/.claude.json` alongside unrelated state
+- `sortedHostNames()` derived from the hosts map rather than a hardcoded list.
+  The two had already drifted, which would have hidden `claude-code` from
+  `--help`, the unknown-host error, and doctor detection
+- Doubled `v` in `install.sh`'s success line when installing from source. The
+  version is now printed bare unless it looks like a version number, since
+  `git describe --always` returns a SHA on a shallow or tagless clone
+- Host config `.bak` files inherit the source file's permissions instead of a
+  hardcoded `0644`. `~/.claude.json` is commonly `0600` and holds account
+  identifiers, so the backup was widening access to them
+- `readJSON` rejects data after the top-level JSON value. `json.Decoder` stops
+  at the first value where `json.Unmarshal` did not, so a config corrupted by a
+  doubled write would have been silently rewritten with the remainder dropped
+- `configure` and `configure --remove` abort if the config file changes between
+  read and write, instead of reverting whatever wrote it. Claude Code rewrites
+  `~/.claude.json` while it runs, so a whole-file rewrite from a stale read can
+  lose its state
+- Restored the `%APPDATA%` fallback that the doctor host table used to carry.
+  With `APPDATA` unset, the Windows config paths resolved relative to the
+  working directory
+- `install.sh --from-source` fails with a clear message when piped from stdin
+  (`curl | bash`), where `BASH_SOURCE` is unset and there is no checkout to build
+
 ## [0.1.0] - 2026-05-31
 
 ### Added

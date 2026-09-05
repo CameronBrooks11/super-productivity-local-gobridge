@@ -46,7 +46,7 @@ elif [[ -z "$KEEP_CONFIGS" ]]; then
 fi
 
 if [[ -n "$do_remove_configs" ]]; then
-  for host in claude-desktop vscode-copilot codex; do
+  for host in claude-code claude-desktop vscode-copilot codex; do
     "${TARGET}" configure --remove "$host" 2>/dev/null || true
   done
   echo ""

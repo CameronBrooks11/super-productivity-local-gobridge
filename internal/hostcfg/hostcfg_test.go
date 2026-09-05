@@ -45,6 +45,8 @@ func testConfigPath(home, hostName string) string {
 		default:
 			return filepath.Join(home, ".config", "Code", "User", "mcp.json")
 		}
+	case HostClaudeCode:
+		return filepath.Join(home, ".claude.json")
 	case HostCodex:
 		return filepath.Join(home, ".codex", "config.toml")
 	default:
@@ -514,5 +516,161 @@ func TestRunPrintConfig_VSCode(t *testing.T) {
 	code := RunPrintConfig([]string{"vscode-copilot"})
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d", code)
+	}
+}
+
+func TestBuildEntry_ClaudeCodeHasType(t *testing.T) {
+	entry := buildEntry(HostClaudeCode)
+	if entry["type"] != "stdio" {
+		t.Fatalf("claude-code entry should have type=stdio, got: %v", entry)
+	}
+}
+
+func TestRunConfigure_DryRunClaudeCode(t *testing.T) {
+	withTempHome(t)
+	if code := RunConfigure([]string{"--dry-run", "claude-code"}); code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+}
+
+func TestRunConfigure_ClaudeCode_WritesJSON(t *testing.T) {
+	home := withTempHome(t)
+	if code := RunConfigure([]string{"claude-code"}); code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+	configPath := testConfigPath(home, HostClaudeCode)
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("config file not created: %v", err)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(data, &obj); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	servers, _ := obj["mcpServers"].(map[string]any)
+	if servers == nil || servers["super-productivity"] == nil {
+		t.Fatalf("expected mcpServers.super-productivity, got: %v", obj)
+	}
+	entry, _ := servers["super-productivity"].(map[string]any)
+	if entry["type"] != "stdio" {
+		t.Fatalf("expected type=stdio, got: %v", entry)
+	}
+}
+
+func TestRunConfigure_ClaudeCode_RemoveRoundTrip(t *testing.T) {
+	home := withTempHome(t)
+	if code := RunConfigure([]string{"claude-code"}); code != 0 {
+		t.Fatalf("configure failed: %d", code)
+	}
+	if code := RunConfigure([]string{"--remove", "claude-code"}); code != 0 {
+		t.Fatalf("remove failed: %d", code)
+	}
+	data, _ := os.ReadFile(testConfigPath(home, HostClaudeCode))
+	var obj map[string]any
+	json.Unmarshal(data, &obj)
+	if servers, ok := obj["mcpServers"].(map[string]any); ok && servers["super-productivity"] != nil {
+		t.Fatalf("entry should be gone, got: %v", obj)
+	}
+}
+
+// Claude Code's config carries unrelated state that we must not disturb while
+// adding one key. A float64 JSON round-trip would silently rewrite integers
+// above 2^53, so readJSON keeps numbers as their original literal.
+func TestConfigure_PreservesForeignKeysAndLargeIntegers(t *testing.T) {
+	home := withTempHome(t)
+	configPath := testConfigPath(home, HostClaudeCode)
+	original := `{"numStartups":376,"bigId":9007199254740993,"firstStartTime":1788567895339,` +
+		`"ratio":1.5,"mcpServers":{"existing":{"command":"keep-me"}}}`
+	if err := os.WriteFile(configPath, []byte(original), 0o644); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	if code := RunConfigure([]string{"claude-code"}); code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read back failed: %v", err)
+	}
+	text := string(data)
+	for _, want := range []string{"9007199254740993", "1788567895339", "376", "1.5", "keep-me"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("value %q not preserved verbatim; got:\n%s", want, text)
+		}
+	}
+}
+
+func TestReadJSON_PreservesIntegerLiterals(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "big.json")
+	os.WriteFile(tmp, []byte(`{"big":9007199254740993}`), 0o644)
+	result, err := readJSON(tmp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	num, ok := result["big"].(json.Number)
+	if !ok {
+		t.Fatalf("expected json.Number, got %T", result["big"])
+	}
+	if num.String() != "9007199254740993" {
+		t.Fatalf("integer literal not preserved: %s", num.String())
+	}
+}
+
+// json.Decoder stops at the first value, so without an explicit check a file
+// corrupted by a doubled write would parse as its leading object and then be
+// rewritten with the remainder discarded.
+func TestReadJSON_RejectsTrailingData(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "doubled.json")
+	os.WriteFile(tmp, []byte(`{"a":1}{"b":2}`), 0o644)
+	if _, err := readJSON(tmp); err == nil {
+		t.Fatal("expected an error for data after the top-level value")
+	}
+}
+
+// Host configs can hold account identifiers, so the .bak must not be more
+// permissive than the file it copies.
+func TestBackup_PreservesMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not meaningful on Windows")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(`{"a":1}`), 0o600); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	backup(path)
+	fi, err := os.Stat(path + ".bak")
+	if err != nil {
+		t.Fatalf("backup not created: %v", err)
+	}
+	if got := fi.Mode().Perm(); got != 0o600 {
+		t.Fatalf("backup widened permissions: got %v, want -rw-------", got)
+	}
+}
+
+func TestConcurrentModification_DetectsChange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "live.json")
+	os.WriteFile(path, []byte(`{"a":1}`), 0o644)
+	before := fingerprint(path)
+	if concurrentModification(path, before) {
+		t.Fatal("unchanged file reported as modified")
+	}
+	os.WriteFile(path, []byte(`{"a":1,"b":2}`), 0o644)
+	if !concurrentModification(path, before) {
+		t.Fatal("changed file not detected")
+	}
+}
+
+func TestAppDataDir_FallsBackWhenUnset(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("APPDATA", "")
+	got := appDataDir()
+	if !filepath.IsAbs(got) {
+		t.Fatalf("fallback must be absolute, got %q", got)
+	}
+	if want := filepath.Join(home, "AppData", "Roaming"); got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }

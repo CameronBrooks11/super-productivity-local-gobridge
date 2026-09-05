@@ -13,7 +13,7 @@ Go rewrite of [super-productivity-local-bridge](https://github.com/CameronBrooks
 - **Single binary** — no runtime dependencies, small static binary
 - **MCP server** — JSON-RPC 2.0 over stdio (protocol version 2024-11-05)
 - **16 operations** — full parity with Python bridge v0.2.0
-- **Host auto-config** — configures Claude Desktop, VS Code Copilot, Codex CLI
+- **Host auto-config** — configures Claude Code, Claude Desktop, VS Code Copilot, Codex CLI
 - **Strict validation** — integer fields reject exponents and overflow
 
 ## Requirements
@@ -52,7 +52,7 @@ If you prefer not to use agent-driven setup:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/CameronBrooks11/super-productivity-local-gobridge/main/scripts/install.sh | bash
-sp-local-bridge configure vscode-copilot   # or claude-desktop, codex
+sp-local-bridge configure claude-code      # or claude-desktop, vscode-copilot, codex
 sp-local-bridge doctor
 ```
 
@@ -66,7 +66,7 @@ sp-local-bridge tasks list             # List tasks
 sp-local-bridge tasks add "Title" [--project-id <id>] [--tag-id <id>]  # Create task
 sp-local-bridge tasks start <id>       # Start time tracking
 sp-local-bridge tasks stop-current     # Stop time tracking
-sp-local-bridge configure <host>       # Write MCP config (claude-desktop, vscode-copilot, codex)
+sp-local-bridge configure <host>       # Write MCP config (claude-code, claude-desktop, vscode-copilot, codex)
 sp-local-bridge configure --remove <host>  # Remove MCP config entry
 sp-local-bridge mcp                    # Run MCP server (invoked by host, not manually)
 ```

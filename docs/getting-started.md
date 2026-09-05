@@ -37,6 +37,7 @@ This checks binary info, PATH visibility, host config status, SP connectivity, a
 ## Configure an MCP Host
 
 ```bash
+sp-local-bridge configure claude-code     # Claude Code (CLI agent)
 sp-local-bridge configure vscode-copilot   # VS Code Copilot
 sp-local-bridge configure claude-desktop   # Claude Desktop
 sp-local-bridge configure codex            # Codex CLI

@@ -494,7 +494,8 @@ func printHostStatus() {
 	}
 	// The host names are printed in both cases: the caller being invited to
 	// configure another host is exactly the one who needs to know the valid
-	// values, and install.sh no longer prints its own copy of this list.
+	// values. They come from sortedHostNames() so that a newly supported host
+	// appears here without anyone remembering to update a second list.
 	fmt.Println("Configure a host with: sp-local-bridge configure <host>")
 	fmt.Printf("  Supported hosts: %s\n", strings.Join(sortedHostNames(), ", "))
 }

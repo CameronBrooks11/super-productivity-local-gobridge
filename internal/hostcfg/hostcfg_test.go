@@ -981,9 +981,13 @@ func TestRunConfigure_Status_RejectsHostArgument(t *testing.T) {
 	}
 }
 
-// install.sh dropped its own copy of the host list in favour of this output, so
-// the names have to appear whether or not anything is configured yet.
+// install.sh no longer carries its own copy of the host list, so the invitation
+// has to name them whether or not anything is configured yet. Asserting that
+// each name appears somewhere in the output would prove nothing: the table
+// above lists every host either way. The assertion is on the invitation line.
 func TestRunConfigure_Status_AlwaysNamesSupportedHosts(t *testing.T) {
+	want := "Supported hosts: " + strings.Join(sortedHostNames(), ", ")
+
 	for _, tc := range []struct {
 		name      string
 		configure bool
@@ -998,13 +1002,8 @@ func TestRunConfigure_Status_AlwaysNamesSupportedHosts(t *testing.T) {
 					"[mcp_servers.superProductivity]\ncommand = \"sp-local-bridge\"\n")
 			}
 			out := captureStdout(t, func() { RunConfigure([]string{"--status"}) })
-			for _, host := range sortedHostNames() {
-				if !strings.Contains(out, host) {
-					t.Errorf("host %q missing from output:\n%s", host, out)
-				}
-			}
-			if !strings.Contains(out, "Supported hosts:") {
-				t.Errorf("expected the supported-host list, got:\n%s", out)
+			if !strings.Contains(out, want) {
+				t.Errorf("expected %q in the invitation, got:\n%s", want, out)
 			}
 		})
 	}

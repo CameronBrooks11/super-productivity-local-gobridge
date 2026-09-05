@@ -210,7 +210,7 @@ if STATUS_OUT="$("${INSTALL_DIR}/${BINARY}" configure --status 2>/dev/null)"; th
 else
   echo "Host config status: not reported by this version."
   echo "  Configure a host with: sp-local-bridge configure <host>"
-  echo "  Supported hosts: claude-code, claude-desktop, vscode-copilot, codex"
+  echo "  Run 'sp-local-bridge configure --help' for the supported hosts."
 fi
 echo ""
 

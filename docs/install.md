@@ -18,9 +18,12 @@ Download the appropriate archive for your platform from the [Releases page](http
 
 ### Platform Matrix
 
-Release archives are versioned. The commands below resolve the latest release
-automatically; set `VERSION` yourself to install a specific one from the
-[Releases page](https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases):
+Release archives are versioned, with `VERSION` standing for the release number
+(`0.3.0`, not `v0.3.0`) as listed on the
+[Releases page](https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases).
+The Linux and macOS commands below fill it in with the latest release; set
+`VERSION` beforehand to install a specific one, and substitute it by hand in the
+Windows steps:
 
 | Platform | Archive |
 |----------|---------|
@@ -37,11 +40,12 @@ automatically; set `VERSION` yourself to install a specific one from the
 # Resolve the latest release, or set VERSION=x.y.z to pin one
 VERSION="${VERSION:-$(curl -sL https://api.github.com/repos/CameronBrooks11/super-productivity-local-gobridge/releases/latest \
   | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')}"
-: "${VERSION:?could not resolve a release version - set VERSION=x.y.z manually}"
+VERSION="${VERSION#v}"
+[ -n "$VERSION" ] || echo "Could not resolve a release version; set VERSION=x.y.z and re-run." >&2
 
 # Download archive and checksums
-curl -LO "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/download/v${VERSION}/sp-local-bridge_${VERSION}_linux_amd64.tar.gz"
-curl -LO "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/download/v${VERSION}/checksums.txt"
+curl -fLO "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/download/v${VERSION}/sp-local-bridge_${VERSION}_linux_amd64.tar.gz"
+curl -fLO "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/download/v${VERSION}/checksums.txt"
 
 # Verify checksum
 grep "sp-local-bridge_${VERSION}_linux_amd64.tar.gz" checksums.txt | sha256sum -c -
@@ -58,11 +62,12 @@ sudo mv sp-local-bridge /usr/local/bin/
 # Resolve the latest release, or set VERSION=x.y.z to pin one
 VERSION="${VERSION:-$(curl -sL https://api.github.com/repos/CameronBrooks11/super-productivity-local-gobridge/releases/latest \
   | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')}"
-: "${VERSION:?could not resolve a release version - set VERSION=x.y.z manually}"
+VERSION="${VERSION#v}"
+[ -n "$VERSION" ] || echo "Could not resolve a release version; set VERSION=x.y.z and re-run." >&2
 
 # Download archive and checksums (adjust darwin_arm64 to darwin_amd64 for Intel Macs)
-curl -LO "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/download/v${VERSION}/sp-local-bridge_${VERSION}_darwin_arm64.tar.gz"
-curl -LO "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/download/v${VERSION}/checksums.txt"
+curl -fLO "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/download/v${VERSION}/sp-local-bridge_${VERSION}_darwin_arm64.tar.gz"
+curl -fLO "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/download/v${VERSION}/checksums.txt"
 
 # Verify checksum (macOS uses shasum instead of sha256sum)
 grep "sp-local-bridge_${VERSION}_darwin_arm64.tar.gz" checksums.txt | shasum -a 256 -c -

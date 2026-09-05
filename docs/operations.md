@@ -347,3 +347,41 @@ the reports in the project's issue tracker.
 
 A transport failure is never recast as a missing task: if Super Productivity is
 unreachable, the error is `SP_UNAVAILABLE`.
+
+## Verifying against a live Super Productivity
+
+The offline suite replays committed fixtures, so it cannot notice if Super
+Productivity changes what it returns — or if a fixture describes a response SP
+never sends. Both have happened.
+
+```bash
+make test-live
+```
+
+This runs a build-tagged suite (`//go:build live`) against a running SP and
+checks two things:
+
+- **The fields callers depend on** are present with the types expected. A
+  required field missing from even one object fails. Not all of them are read by
+  the bridge itself — `doctor --deep` reads `subTaskIds`, `taskIds` and
+  `backlogTaskIds`; most of the rest pass through to the caller — but a silent
+  rename in any of them reaches the user rather than the bridge.
+- **The response fixtures do not invent fields.** Every field a fixture claims
+  must exist in a real response with a matching type. Fixtures may be smaller
+  than reality; they may not be fiction.
+
+  Fields SP returns only when set — `notes`, `dueDay`, `parentId` and the like —
+  are excused when a store has none, and still type-checked on a store that has
+  some. Request fixtures and error fixtures are not covered: they describe what
+  the bridge sends, or a failure a read-only run cannot provoke.
+
+It also asserts that a missing task and a missing route still report different
+codes, since the `archive` existence guard depends on telling them apart.
+
+Every request is a `GET`. The suite is excluded from `go test ./...` and from
+CI, which has no Super Productivity to reach and could not start one — the API
+port is a hardcoded 3876.
+
+There is no `--update` mode. Fixtures are committed to a public repository and
+live responses carry real task titles, project names and notes, so fixtures are
+written by hand from the shapes the failure messages report.

@@ -47,8 +47,14 @@ func TestClient_Health_OK(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected map, got %T", result.Data)
 	}
-	if data["status"] != "up" {
-		t.Fatalf("expected status=up, got %v", data["status"])
+	// SP reports "server" and "rendererReady". The fixture previously invented a
+	// "status" field and this assertion agreed with it, so both were wrong
+	// together and the suite stayed green.
+	if data["server"] != "up" {
+		t.Fatalf("expected server=up, got %v", data["server"])
+	}
+	if data["rendererReady"] != true {
+		t.Fatalf("expected rendererReady=true, got %v", data["rendererReady"])
 	}
 }
 

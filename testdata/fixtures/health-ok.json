@@ -1,6 +1,7 @@
 {
   "ok": true,
   "data": {
-    "status": "up"
+    "server": "up",
+    "rendererReady": true
   }
 }

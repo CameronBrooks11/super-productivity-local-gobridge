@@ -38,6 +38,7 @@ make test                  # Run tests
 make test-cover            # Tests with coverage
 make check                 # Format check + vet + test (non-mutating)
 make race                  # Run tests with race detector
+make test-live             # Verify the client against a running SP (read-only)
 make fmt                   # Format code (mutates files)
 make clean                 # Remove build artifacts
 go test ./... -count=1     # Run all tests
@@ -57,6 +58,25 @@ go vet ./...               # Static analysis
 - Integer fields parsed via `strconv.ParseInt` from raw JSON (no float64).
 - Atomic file writes with backup for host config mutations.
 - JSON configs parsed before modification; TOML uses structural guard (not a full parser).
+
+## Fixtures
+
+`testdata/fixtures/*.json` are hand-written, not recordings. They must stay
+synthetic — this is a public repository and real responses carry task titles,
+project names and notes — but they must be **shape-accurate**: no field SP does
+not return, and no type SP does not use.
+
+This has bitten repeatedly. The tag fixture used `name` where SP sends `title`;
+the health fixture invented `status` and a test asserted it, so fixture and test
+were wrong together and the suite stayed green; task fixtures carried a
+`plannedAt` that never appears in a response.
+
+`make test-live` checks every response fixture the read-only suite can reach
+against a running SP, and fails on any field SP does not return. Request
+fixtures (`*-request.json`) and error fixtures are not checked — they describe
+what we send, or a failure a read-only run cannot provoke. Run it after touching a fixture, and before a
+release. There is deliberately no auto-update mode: regenerating from a live
+store would commit personal data.
 
 ## Testing against a running Super Productivity
 

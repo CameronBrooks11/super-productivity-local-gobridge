@@ -2,6 +2,7 @@
   "ok": true,
   "data": {
     "currentTask": null,
-    "currentProject": null
+    "currentTaskId": null,
+    "taskCount": 42
   }
 }

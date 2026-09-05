@@ -1,16 +1,38 @@
-[
-  {
-    "id": "project-1",
-    "title": "Work",
-    "theme": {
-      "primary": "#1976d2"
+{
+  "ok": true,
+  "data": [
+    {
+      "id": "project-1",
+      "title": "Work",
+      "taskIds": [
+        "task-abc123",
+        "task-def456"
+      ],
+      "backlogTaskIds": [],
+      "noteIds": [],
+      "isArchived": false,
+      "isEnableBacklog": false,
+      "isHiddenFromMenu": false,
+      "icon": null,
+      "theme": {
+        "primary": "#1976d2"
+      },
+      "advancedCfg": {}
+    },
+    {
+      "id": "project-2",
+      "title": "Personal",
+      "taskIds": [],
+      "backlogTaskIds": [],
+      "noteIds": [],
+      "isArchived": false,
+      "isEnableBacklog": true,
+      "isHiddenFromMenu": false,
+      "icon": null,
+      "theme": {
+        "primary": "#388e3c"
+      },
+      "advancedCfg": {}
     }
-  },
-  {
-    "id": "project-2",
-    "title": "Personal",
-    "theme": {
-      "primary": "#388e3c"
-    }
-  }
-]
+  ]
+}

@@ -229,10 +229,15 @@ func (s *Server) registerTools() {
 		mutatingAnnotations)
 
 	s.addTool("archive_task", bridge.OpTaskArchive,
-		"Archive a task. Returns TASK_NOT_FOUND if the id is not in the active list, "+
-			"including when the task is already archived. Super Productivity's own "+
-			"archive endpoint reports success for ids that do not exist; the bridge "+
-			"checks first so a mistaken id is not reported as a completed archive.",
+		"Archive a task. Super Productivity's own archive endpoint reports success "+
+			"for ids that do not exist, so the bridge confirms the task first and "+
+			"never archives on an unconfirmed read. Returns TASK_NOT_FOUND when the "+
+			"id is not in the active list, which includes a task that is already "+
+			"archived — check list_tasks with source=archived and includeDone=true "+
+			"before treating that as a failure. Returns SP_ERROR when the check "+
+			"could not be completed at all, which means the task's existence is "+
+			"unknown rather than disproved; nothing was archived in that case "+
+			"either, and retrying is reasonable.",
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{

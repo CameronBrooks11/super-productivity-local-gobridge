@@ -27,11 +27,15 @@ var contractOperations = []string{
 
 // contractErrorCodes defines the error codes the bridge itself produces.
 //
-// It is not a closed set for what a caller can observe: translateEnvelope
-// passes through whatever error.code SP supplies, so a future SP release could
-// surface a code not named here. That is deliberate — relabelling SP's own
-// codes would lose information — but it does mean this list documents the
-// bridge's vocabulary rather than bounding the response.
+// The rule for this list: a code belongs here only if bridge code constructs
+// it. Codes that merely pass through from SP's envelope do not, however common
+// — ErrNotFound and APP_NOT_READY are both SP's, named as constants or
+// fixtures for convenience, and neither is listed.
+//
+// So this is not a closed set for what a caller can observe: translateEnvelope
+// returns whatever error.code SP supplied, and a future SP release could
+// surface one nothing here names. That is deliberate, since relabelling SP's
+// codes would lose information.
 var contractErrorCodes = []string{
 	ErrSPUnavailable,
 	ErrTimeout,
@@ -39,7 +43,6 @@ var contractErrorCodes = []string{
 	ErrUnsupportedOperation,
 	ErrInvalidInput,
 	ErrTaskNotFound,
-	ErrNotFound,
 	ErrProjectNotFound,
 	ErrSPError,
 	ErrInternalError,

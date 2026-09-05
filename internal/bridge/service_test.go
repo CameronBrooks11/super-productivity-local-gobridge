@@ -789,6 +789,16 @@ func TestService_TaskArchive_UnconfirmedProbeDoesNotArchive(t *testing.T) {
 			if !strings.Contains(result.Error.Message, "Could not confirm") {
 				t.Fatalf("message should say the task was unconfirmed, got: %s", result.Error.Message)
 			}
+			// Collapsing every shape to one contentless error made a proxy's
+			// HTML interstitial and SP returning a different task's id look
+			// identical, so neither could be diagnosed without a manual repro.
+			desc, _ := result.Error.Details["probe_returned"].(string)
+			if desc == "" {
+				t.Fatal("the error should record what the probe returned")
+			}
+			if name == "wrong task id" && !strings.Contains(desc, "someone-else") {
+				t.Fatalf("a mismatched id is the signal worth surfacing, got %q", desc)
+			}
 		})
 	}
 }

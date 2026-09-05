@@ -210,6 +210,24 @@ func handleTaskSetCurrent(ctx context.Context, client *Client, payload map[strin
 	return client.SetCurrentTask(ctx, &taskID)
 }
 
+// describeProbe summarises what the existence probe returned, without echoing
+// task content into an error message.
+func describeProbe(data any) string {
+	switch v := data.(type) {
+	case nil:
+		return "no data"
+	case map[string]any:
+		if id, ok := v["id"].(string); ok && id != "" {
+			return fmt.Sprintf("an object with id %q", id)
+		}
+		return "an object with no id"
+	case []any:
+		return fmt.Sprintf("a list of %d items", len(v))
+	default:
+		return fmt.Sprintf("%T", v)
+	}
+}
+
 // confirmsTask reports whether a probe response actually carried the task that
 // was asked for. A successful status is not enough: several shapes translate to
 // Success(nil), and archiving on the strength of one would defeat the guard.
@@ -276,9 +294,16 @@ func handleTaskArchive(ctx context.Context, client *Client, payload map[string]j
 		// treating those as "the task exists" would send the archive POST for an
 		// id never actually confirmed — the same call this guard exists to
 		// prevent. Require the probe to hand back the task it was asked for.
+		// Carry what came back. Collapsing every shape to one contentless
+		// message means an HTML interstitial from a proxy and SP handing back a
+		// different task's id — a much more serious signal — look identical, and
+		// diagnosing either requires reproducing it by hand.
 		return Failure(ErrSPError,
 			"Could not confirm the task exists; nothing was archived.",
-			map[string]any{"task_id": id})
+			map[string]any{
+				"task_id":        id,
+				"probe_returned": describeProbe(existing.Data),
+			})
 	}
 	return client.ArchiveTask(ctx, id)
 }

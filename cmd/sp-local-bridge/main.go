@@ -50,7 +50,10 @@ func main() {
 	case "mcp":
 		runMCP()
 	case "doctor":
-		runDoctor()
+		// Strip the subcommand word here, as print-config and configure do, so
+		// doctor.Run never has to guess whether "doctor" is its own name or a
+		// stray argument. The multicall alias path passes os.Args[1:] instead.
+		os.Exit(doctor.Run(os.Args[2:]))
 	case "print-config":
 		os.Exit(hostcfg.RunPrintConfig(os.Args[2:]))
 	case "configure":

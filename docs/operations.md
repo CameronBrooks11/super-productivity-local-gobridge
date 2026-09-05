@@ -168,6 +168,43 @@ alongside it.
 writes the error and help to stderr, leaving stdout empty rather than
 contaminating the JSON stream.
 
+The index fields are checked the same way. `project.taskIds`,
+`project.backlogTaskIds`, `tag.taskIds` and `task.subTaskIds` must each be
+present and hold a list of ids; a missing or malformed one is an error naming
+the field, not an empty index. Reading a missing index as "this project
+references nothing" would turn every task it owns into an orphan — a healthy
+store reported as corrupt — and because that result is deterministic it would
+survive both confirmation passes and be reported as confirmed. An empty list is
+legal: a project with no tasks is normal.
+
+An unreadable index **degrades the run rather than failing it**. The
+reference-derived verdicts (`dangling`, `orphaned`) are withheld, because a
+reference set built from a broken index cannot be trusted — every task in that
+project would look orphaned. Everything derived from the task pools alone stays
+valid and is still reported: the pool counts, and `duplicated`, which needs no
+index at all. That matters, because in a real corruption event those are the
+signals worth keeping.
+
+The report comes back `unconfirmed` with the reason naming the entity and field,
+and exits 1:
+
+```console
+Store integrity... UNCONFIRMED
+  active tasks        : 2
+  archived tasks      : 0
+  referenced by index : 0
+  reason              : /projects: p_broken is missing "taskIds"; cannot judge integrity
+
+  No verdict: see the reason above. Re-run once it is resolved.
+```
+
+`referenced by index` reads 0 on this path rather than a partial count: the
+loops keep going past the first bad entity, so any figure would cover only the
+entities that happened to parse.
+
+**Monitoring should treat any non-zero exit as needing attention** rather than
+keying on 3 alone, since this class of problem reports as 1.
+
 If any of the four pulls returns something that is not a list — `data: null`, an
 empty body, a non-JSON payload — the check reports an error naming that endpoint
 and exits 1 rather than reading it as "zero entities". Treating a degenerate

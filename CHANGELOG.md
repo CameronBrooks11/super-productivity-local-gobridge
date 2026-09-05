@@ -30,6 +30,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `doctor --deep` treats a missing or malformed index field as unreadable rather
+  than as an empty index. Reading one as zero references turned every task it
+  owned into an orphan, reporting a healthy store as corrupt — and
+  deterministically, so it survived both confirmation passes. The run now
+  degrades to unconfirmed, keeping the pool counts and `duplicated`, which no
+  index can invalidate (#33)
+- `doctor` rejects its own subcommand word as an argument at any position. It
+  was tolerated at index 0, where the multicall alias puts it, so
+  `sp-local-bridge-doctor doctor` ran a shallow check and printed "All checks
+  passed"
+- `doctor` names the first unrecognised argument rather than the last, and an
+  argument that is itself the empty string is now reported instead of ignored
+
 - `--source archived` needing `--include-done` is now documented in CLI help,
   the `list_tasks` MCP tool description, and the operations reference. SP
   applies the done filter to the archived pool whatever a task's `isDone`

@@ -3,8 +3,10 @@ package doctor
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -19,24 +21,33 @@ type storeFixture struct {
 	tags     []map[string]any
 }
 
-func task(id string, subTaskIDs ...string) map[string]any {
-	t := map[string]any{"id": id, "title": id}
-	if len(subTaskIDs) > 0 {
-		ids := make([]any, len(subTaskIDs))
-		for i, s := range subTaskIDs {
-			ids[i] = s
-		}
-		t["subTaskIds"] = ids
-	}
-	return t
-}
-
-func withIDs(key string, ids ...string) map[string]any {
+// anyIDs mirrors how a decoded JSON array of ids arrives.
+func anyIDs(ids ...string) []any {
 	arr := make([]any, len(ids))
 	for i, s := range ids {
 		arr[i] = s
 	}
-	return map[string]any{"id": "x", "title": "x", key: arr}
+	return arr
+}
+
+// The fixtures below mirror what SP 18.10.0 actually returns: every index field
+// is present as a list on every object, empty rather than omitted. Fixtures that
+// omitted them were not just unrealistic, they hid the guard this file tests.
+
+func task(id string, subTaskIDs ...string) map[string]any {
+	return map[string]any{"id": id, "title": id, "subTaskIds": anyIDs(subTaskIDs...)}
+}
+
+func project(taskIDs ...string) map[string]any {
+	return map[string]any{
+		"id": "p1", "title": "p1",
+		"taskIds":        anyIDs(taskIDs...),
+		"backlogTaskIds": anyIDs(),
+	}
+}
+
+func tag(taskIDs ...string) map[string]any {
+	return map[string]any{"id": "g1", "title": "g1", "taskIds": anyIDs(taskIDs...)}
 }
 
 func newStoreServer(t *testing.T, f storeFixture) *httptest.Server {
@@ -81,7 +92,7 @@ func check(t *testing.T, f storeFixture) IntegrityReport {
 func TestIntegrity_CleanStore(t *testing.T) {
 	r := check(t, storeFixture{
 		active:   []map[string]any{task("t1"), task("t2")},
-		projects: []map[string]any{withIDs("taskIds", "t1", "t2")},
+		projects: []map[string]any{project("t1", "t2")},
 	})
 	if !r.Clean() {
 		t.Fatalf("expected clean, got dangling=%v orphaned=%v", r.Dangling, r.Orphaned)
@@ -98,7 +109,7 @@ func TestIntegrity_ArchivedTasksAreNotOrphans(t *testing.T) {
 	r := check(t, storeFixture{
 		active:   []map[string]any{task("t1")},
 		archived: []map[string]any{task("a1"), task("a2")},
-		projects: []map[string]any{withIDs("taskIds", "t1")},
+		projects: []map[string]any{project("t1")},
 	})
 	if !r.Clean() {
 		t.Fatalf("archived tasks must not be orphans: dangling=%v orphaned=%v", r.Dangling, r.Orphaned)
@@ -113,7 +124,7 @@ func TestIntegrity_ReferenceIntoArchiveIsNotDangling(t *testing.T) {
 	r := check(t, storeFixture{
 		active:   []map[string]any{task("t1")},
 		archived: []map[string]any{task("a1")},
-		projects: []map[string]any{withIDs("taskIds", "t1", "a1")},
+		projects: []map[string]any{project("t1", "a1")},
 	})
 	if len(r.Dangling) != 0 {
 		t.Fatalf("expected no dangling, got %v", r.Dangling)
@@ -124,7 +135,7 @@ func TestIntegrity_ReferenceIntoArchiveIsNotDangling(t *testing.T) {
 func TestIntegrity_DetectsDanglingReferences(t *testing.T) {
 	r := check(t, storeFixture{
 		active:   []map[string]any{task("t1")},
-		projects: []map[string]any{withIDs("taskIds", "t1", "gone1", "gone2")},
+		projects: []map[string]any{project("t1", "gone1", "gone2")},
 	})
 	if len(r.Dangling) != 2 {
 		t.Fatalf("expected 2 dangling, got %v", r.Dangling)
@@ -140,7 +151,7 @@ func TestIntegrity_DetectsDanglingReferences(t *testing.T) {
 func TestIntegrity_DetectsOrphanedActiveTask(t *testing.T) {
 	r := check(t, storeFixture{
 		active:   []map[string]any{task("t1"), task("stray")},
-		projects: []map[string]any{withIDs("taskIds", "t1")},
+		projects: []map[string]any{project("t1")},
 	})
 	if len(r.Orphaned) != 1 || r.Orphaned[0] != "stray" {
 		t.Fatalf("expected orphan 'stray', got %v", r.Orphaned)
@@ -150,8 +161,8 @@ func TestIntegrity_DetectsOrphanedActiveTask(t *testing.T) {
 func TestIntegrity_SubtasksAndTagsCountAsReferences(t *testing.T) {
 	r := check(t, storeFixture{
 		active:   []map[string]any{task("parent", "sub1"), task("sub1"), task("tagged")},
-		projects: []map[string]any{withIDs("taskIds", "parent")},
-		tags:     []map[string]any{withIDs("taskIds", "tagged")},
+		projects: []map[string]any{project("parent")},
+		tags:     []map[string]any{tag("tagged")},
 	})
 	if !r.Clean() {
 		t.Fatalf("expected clean, got dangling=%v orphaned=%v", r.Dangling, r.Orphaned)
@@ -213,8 +224,8 @@ func runWithStore(t *testing.T, f storeFixture, args ...string) int {
 func TestRun_JSONReturnsThreeWhenStoreInconsistent(t *testing.T) {
 	code := runWithStore(t, storeFixture{
 		active:   []map[string]any{task("t1")},
-		projects: []map[string]any{withIDs("taskIds", "t1", "GHOST")},
-	}, "doctor", "--json")
+		projects: []map[string]any{project("t1", "GHOST")},
+	}, "--json")
 	if code != 3 {
 		t.Fatalf("inconsistent store via --json must exit 3, got %d", code)
 	}
@@ -223,8 +234,8 @@ func TestRun_JSONReturnsThreeWhenStoreInconsistent(t *testing.T) {
 func TestRun_JSONReturnsZeroWhenClean(t *testing.T) {
 	code := runWithStore(t, storeFixture{
 		active:   []map[string]any{task("t1")},
-		projects: []map[string]any{withIDs("taskIds", "t1")},
-	}, "doctor", "--json")
+		projects: []map[string]any{project("t1")},
+	}, "--json")
 	if code != 0 {
 		t.Fatalf("clean store via --json must exit 0, got %d", code)
 	}
@@ -233,7 +244,7 @@ func TestRun_JSONReturnsZeroWhenClean(t *testing.T) {
 func TestRun_JSONReturnsOneWhenUnreachable(t *testing.T) {
 	// Reserved-for-documentation port that nothing listens on.
 	t.Setenv("SP_BASE_URL", "http://127.0.0.1:1")
-	if code := Run([]string{"doctor", "--json"}); code != 1 {
+	if code := Run([]string{"--json"}); code != 1 {
 		t.Fatalf("unreachable SP must exit 1, not be confused with 3; got %d", code)
 	}
 }
@@ -241,19 +252,19 @@ func TestRun_JSONReturnsOneWhenUnreachable(t *testing.T) {
 // A mistyped flag used to be swallowed, running a shallow check that then
 // reported "All checks passed" — the user believed the integrity check ran.
 func TestRun_RejectsStrayPositional(t *testing.T) {
-	if code := Run([]string{"doctor", "deep"}); code != 2 {
+	if code := Run([]string{"deep"}); code != 2 {
 		t.Fatalf("stray positional must exit 2, got %d", code)
 	}
 }
 
 func TestRun_RejectsUnknownFlag(t *testing.T) {
-	if code := Run([]string{"doctor", "--nope"}); code != 2 {
+	if code := Run([]string{"--nope"}); code != 2 {
 		t.Fatalf("unknown flag must exit 2, got %d", code)
 	}
 }
 
 func TestRun_HelpExitsZero(t *testing.T) {
-	if code := Run([]string{"doctor", "--help"}); code != 0 {
+	if code := Run([]string{"--help"}); code != 0 {
 		t.Fatalf("--help must exit 0, got %d", code)
 	}
 }
@@ -342,7 +353,7 @@ func TestIntegrity_DetectsTaskInBothPools(t *testing.T) {
 	r := check(t, storeFixture{
 		active:   []map[string]any{task("t1"), task("both")},
 		archived: []map[string]any{task("both")},
-		projects: []map[string]any{withIDs("taskIds", "t1", "both")},
+		projects: []map[string]any{project("t1", "both")},
 	})
 	if len(r.Duplicated) != 1 || r.Duplicated[0] != "both" {
 		t.Fatalf("expected 'both' flagged as duplicated, got %v", r.Duplicated)
@@ -406,10 +417,10 @@ func racingServer(t *testing.T) *httptest.Server {
 		case r.URL.Path == "/projects":
 			round++
 			if round == 1 {
-				enc([]map[string]any{withIDs("taskIds", "t1", "RACE")}) // transient
+				enc([]map[string]any{project("t1", "RACE")}) // transient
 				return
 			}
-			enc([]map[string]any{withIDs("taskIds", "t1")})
+			enc([]map[string]any{project("t1")})
 		default:
 			enc([]map[string]any{})
 		}
@@ -438,7 +449,7 @@ func TestConfirmed_TransientAnomalyIsDropped(t *testing.T) {
 func TestConfirmed_PersistentAnomalyIsKept(t *testing.T) {
 	srv := newStoreServer(t, storeFixture{
 		active:   []map[string]any{task("t1")},
-		projects: []map[string]any{withIDs("taskIds", "t1", "GHOST")},
+		projects: []map[string]any{project("t1", "GHOST")},
 	})
 	defer srv.Close()
 	r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL))
@@ -461,7 +472,7 @@ func TestConfirmed_CleanStoreSkipsSecondPass(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/projects" {
-			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{withIDs("taskIds", "t1")}})
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{project("t1")}})
 			return
 		}
 		if r.URL.Path == "/tasks" && r.URL.Query().Get("source") != "archived" {
@@ -565,7 +576,7 @@ func shiftingServer(t *testing.T) *httptest.Server {
 			if round == 1 {
 				ghost = "GHOST1"
 			}
-			enc([]map[string]any{withIDs("taskIds", "t1", ghost)})
+			enc([]map[string]any{project("t1", ghost)})
 		default:
 			enc([]map[string]any{})
 		}
@@ -591,7 +602,7 @@ func TestConfirmed_ShiftingAnomaliesAreNotReportedClean(t *testing.T) {
 func TestRun_ShiftingAnomaliesExitOneNotZero(t *testing.T) {
 	srv := shiftingServer(t)
 	t.Setenv("SP_BASE_URL", srv.URL)
-	if code := Run([]string{"doctor", "--json"}); code != 1 {
+	if code := Run([]string{"--json"}); code != 1 {
 		t.Fatalf("an unconfirmed report must exit 1, got %d", code)
 	}
 }
@@ -615,7 +626,7 @@ func TestConfirmed_FailedSecondPassIsUnconfirmed(t *testing.T) {
 		case r.URL.Path == "/tasks":
 			enc([]map[string]any{task("t1")})
 		case r.URL.Path == "/projects":
-			enc([]map[string]any{withIDs("taskIds", "t1", "GHOST")})
+			enc([]map[string]any{project("t1", "GHOST")})
 		default:
 			enc([]map[string]any{})
 		}
@@ -632,22 +643,27 @@ func TestConfirmed_FailedSecondPassIsUnconfirmed(t *testing.T) {
 	// return via the hard-error path, never exercising the unconfirmed case.
 	round = 0
 	t.Setenv("SP_BASE_URL", srv.URL)
-	if code := Run([]string{"doctor", "--json"}); code != 1 {
+	if code := Run([]string{"--json"}); code != 1 {
 		t.Fatalf("an unconfirmed report must exit 1, got %d", code)
 	}
 }
 
 // --json documents stdout as a JSON stream, so help must not land there.
 func TestRun_HelpWithJSONKeepsStdoutClean(t *testing.T) {
-	if code := Run([]string{"doctor", "--json", "--help"}); code != 0 {
+	if code := Run([]string{"--json", "--help"}); code != 0 {
 		t.Fatalf("--help must exit 0, got %d", code)
 	}
 }
 
-// The subcommand word is only legal as args[0].
-func TestRun_StrayDoctorTokenRejected(t *testing.T) {
-	if code := Run([]string{"doctor", "--deep", "doctor"}); code != 2 {
-		t.Fatalf("a repeated subcommand word is a typo; want exit 2, got %d", code)
+// main.go strips the subcommand word before calling Run, so seeing it here at
+// any position is a typo. It used to be tolerated at index 0, which meant the
+// multicall alias silently accepted `sp-local-bridge-doctor doctor` and ran a
+// shallow check while printing "All checks passed".
+func TestRun_SubcommandWordIsAlwaysRejected(t *testing.T) {
+	for _, args := range [][]string{{"doctor"}, {"--deep", "doctor"}, {"doctor", "--deep"}} {
+		if code := Run(args); code != 2 {
+			t.Errorf("Run(%v) must exit 2, got %d", args, code)
+		}
 	}
 }
 
@@ -672,7 +688,7 @@ func mixedServer(t *testing.T) *httptest.Server {
 			if round == 2 {
 				ids = append(ids, "LATE") // LATE appears once
 			}
-			enc([]map[string]any{withIDs("taskIds", ids...)})
+			enc([]map[string]any{project(ids...)})
 		default:
 			enc([]map[string]any{})
 		}
@@ -699,7 +715,7 @@ func TestConfirmed_PersistentAnomalySurvivesATransientOne(t *testing.T) {
 
 func TestRun_ConfirmedAnomalyStillExitsThree(t *testing.T) {
 	t.Setenv("SP_BASE_URL", mixedServer(t).URL)
-	if code := Run([]string{"doctor", "--json"}); code != 3 {
+	if code := Run([]string{"--json"}); code != 3 {
 		t.Fatalf("a twice-seen anomaly must exit 3 even alongside a transient one, got %d", code)
 	}
 }
@@ -743,7 +759,7 @@ func TestConfirmed_FailedSecondPassConfirmsNothing(t *testing.T) {
 		case r.URL.Path == "/tasks":
 			enc([]map[string]any{task("t1")})
 		case r.URL.Path == "/projects":
-			enc([]map[string]any{withIDs("taskIds", "t1", "GHOST")})
+			enc([]map[string]any{project("t1", "GHOST")})
 		default:
 			enc([]map[string]any{})
 		}
@@ -781,7 +797,7 @@ func TestConfirmed_FailedSecondPassCarriesTheReason(t *testing.T) {
 		case r.URL.Path == "/tasks":
 			enc([]map[string]any{task("t1")})
 		case r.URL.Path == "/projects":
-			enc([]map[string]any{withIDs("taskIds", "t1", "GHOST")})
+			enc([]map[string]any{project("t1", "GHOST")})
 		default:
 			enc([]map[string]any{})
 		}
@@ -842,5 +858,300 @@ func TestConfirmed_FailedSecondPassDeduplicatesUnresolved(t *testing.T) {
 	}
 	if len(r.Unresolved) != 1 || r.Unresolved[0] != "both" {
 		t.Fatalf("an id appearing in two categories must be listed once, got %v", r.Unresolved)
+	}
+}
+
+// --- Index-side degenerate payloads (#33) ---
+//
+// Reading a missing index field as "this project references nothing" turns
+// every task it owns into an orphan. That is a healthy store reported as
+// corrupt, with advice not to restore a backup — and unlike a race it is
+// deterministic, so it survives both passes and is reported as *confirmed*.
+
+func serverWithProjects(t *testing.T, projectsJSON string) *httptest.Server {
+	t.Helper()
+	return rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/projects":
+			w.Write([]byte(`{"ok":true,"data":` + projectsJSON + `}`))
+		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+		case r.URL.Path == "/tasks":
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{task("t1"), task("t2")}})
+		default:
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+		}
+	})
+}
+
+// assertIndexUnreadable pins the contract for an unreadable index: no
+// reference-derived verdict is emitted (that was the false-orphans bug), the
+// run is marked unconfirmed, and the reason names what broke.
+func assertIndexUnreadable(t *testing.T, srv *httptest.Server, want ...string) IntegrityReport {
+	t.Helper()
+	r, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("an unreadable index degrades the run, it does not fail it: %v", err)
+	}
+	if !r.Unconfirmed || r.UnconfirmedReason == "" {
+		t.Fatalf("expected an unconfirmed report with a reason, got %+v", r)
+	}
+	if len(r.Dangling) > 0 || len(r.Orphaned) > 0 {
+		t.Fatalf("reference-derived verdicts must be withheld, got dangling=%v orphaned=%v", r.Dangling, r.Orphaned)
+	}
+	if r.Clean() {
+		t.Fatal("an unreadable index is not a clean result")
+	}
+	for _, w := range want {
+		if !strings.Contains(r.UnconfirmedReason, w) {
+			t.Errorf("reason should mention %q, got: %s", w, r.UnconfirmedReason)
+		}
+	}
+	return r
+}
+
+func TestIntegrity_MissingIndexFieldIsAnError(t *testing.T) {
+	// The reviewer's exact repro: a project with no taskIds at all. Before the
+	// guard this reported both tasks as orphaned and exited 3.
+	srv := serverWithProjects(t, `[{"id":"p1","title":"Inbox"}]`)
+	assertIndexUnreadable(t, srv, "/projects", "taskIds", "p1")
+}
+
+func TestIntegrity_NullIndexFieldIsAnError(t *testing.T) {
+	srv := serverWithProjects(t, `[{"id":"p1","taskIds":null,"backlogTaskIds":[]}]`)
+	assertIndexUnreadable(t, srv, "taskIds")
+}
+
+func TestIntegrity_NonStringIndexEntryIsAnError(t *testing.T) {
+	srv := serverWithProjects(t, `[{"id":"p1","taskIds":["t1",42],"backlogTaskIds":[]}]`)
+	assertIndexUnreadable(t, srv, "taskIds")
+}
+
+// An empty index is legal: a project with no tasks is normal.
+func TestIntegrity_EmptyIndexFieldIsValid(t *testing.T) {
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/projects" {
+			w.Write([]byte(`{"ok":true,"data":[{"id":"p1","taskIds":[],"backlogTaskIds":[]}]}`))
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+	})
+	r, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("an empty index is normal, got: %v", err)
+	}
+	if !r.Clean() {
+		t.Fatalf("an empty store is consistent, got %+v", r)
+	}
+}
+
+// backlogTaskIds is required too — a rename there would otherwise hide every
+// backlog task from the reference set.
+func TestIntegrity_MissingBacklogFieldIsAnError(t *testing.T) {
+	srv := serverWithProjects(t, `[{"id":"p1","taskIds":["t1","t2"]}]`)
+	assertIndexUnreadable(t, srv, "backlogTaskIds")
+}
+
+// Asserting only the exit code proves nothing here: last-wins returns 2 as
+// well. The message is the behaviour under test — naming the last bad argument
+// sends the user round the loop once per typo.
+func TestRun_ReportsFirstBadArgument(t *testing.T) {
+	stderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stderr = w
+	code := Run([]string{"--nope", "--alsonope"})
+	w.Close()
+	os.Stderr = stderr
+
+	out, _ := io.ReadAll(r)
+	if code != 2 {
+		t.Fatalf("want exit 2, got %d", code)
+	}
+	msg := string(out)
+	if !strings.Contains(msg, "--nope") {
+		t.Fatalf("should name the first bad argument, got: %s", msg)
+	}
+	if strings.Contains(msg, "--alsonope") {
+		t.Fatalf("should not name the later one, got: %s", msg)
+	}
+}
+
+// --- The other three collectIDs call sites ---
+//
+// The degenerate-payload tests above all go through /projects. Each remaining
+// call site is a separate guard that nothing else pins: dropping the
+// archivedTasks loop, for instance, would not fail any other test.
+
+func serverWithRaw(t *testing.T, path, query, body string) *httptest.Server {
+	t.Helper()
+	return rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == path && (query == "" || r.URL.Query().Get("source") == query) {
+			w.Write([]byte(`{"ok":true,"data":` + body + `}`))
+			return
+		}
+		switch {
+		case r.URL.Path == "/projects":
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{project()}})
+		case r.URL.Path == "/tasks":
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+		default:
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+		}
+	})
+}
+
+func TestIntegrity_TagMissingTaskIDsIsAnError(t *testing.T) {
+	srv := serverWithRaw(t, "/tags", "", `[{"id":"g1","title":"Today"}]`)
+	assertIndexUnreadable(t, srv, "/tags", "g1")
+}
+
+func TestIntegrity_ActiveTaskMissingSubTaskIDsIsAnError(t *testing.T) {
+	srv := serverWithRaw(t, "/tasks", "active", `[{"id":"t1","title":"t1"}]`)
+	assertIndexUnreadable(t, srv, "t1")
+}
+
+// The archived payload's shape differs from the active one (archived objects
+// carry a subTasks key that active objects lack), so this call site is the one
+// most likely to drift.
+func TestIntegrity_ArchivedTaskMissingSubTaskIDsIsAnError(t *testing.T) {
+	// The archived payload's shape differs from the active one (archived objects
+	// carry a subTasks key that active objects lack), so this call site is the
+	// one most likely to drift.
+	srv := serverWithRaw(t, "/tasks", "archived", `[{"id":"a1","title":"a1","subTasks":[]}]`)
+	assertIndexUnreadable(t, srv, "archived", "a1")
+}
+
+// The entity id is the most actionable thing in a real corruption event.
+func TestIntegrity_ErrorNamesTheOffendingEntity(t *testing.T) {
+	srv := serverWithProjects(t, `[{"id":"p_broken","title":"Inbox"}]`)
+	assertIndexUnreadable(t, srv, "p_broken")
+}
+
+// Duplicated is derived from the two task pools alone; no index can invalidate
+// it. Aborting on an unreadable index used to discard it along with the
+// reference-derived verdicts, throwing away the most actionable signal in
+// exactly the corruption event this check exists for.
+func TestIntegrity_PoolFindingsSurviveAnUnreadableIndex(t *testing.T) {
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/projects":
+			w.Write([]byte(`{"ok":true,"data":[{"id":"p_broken","title":"Inbox"}]}`))
+		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{task("both")}})
+		case r.URL.Path == "/tasks":
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{task("both")}})
+		default:
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+		}
+	})
+	r, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(r.Duplicated) != 1 || r.Duplicated[0] != "both" {
+		t.Fatalf("pool-derived findings must survive, got %v", r.Duplicated)
+	}
+	if r.ActiveTasks != 1 || r.ArchivedTasks != 1 {
+		t.Fatalf("pool counts must survive, got active=%d archived=%d", r.ActiveTasks, r.ArchivedTasks)
+	}
+	if !r.Unconfirmed {
+		t.Fatal("the run is still unconfirmed: the reference set could not be read")
+	}
+}
+
+// The confirmation pass must not clear a reason that came from the pass itself.
+func TestConfirmed_IndexReasonSurvivesConfirmation(t *testing.T) {
+	srv := serverWithProjects(t, `[{"id":"p1","title":"Inbox"}]`)
+	r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !r.Unconfirmed || r.UnconfirmedReason == "" {
+		t.Fatalf("an unreadable index must stay unconfirmed through confirmation, got %+v", r)
+	}
+}
+
+// bad doubled as both value and flag, so an argument that *is* the empty string
+// was unreportable: `doctor "$UNSET_VAR"` ran a silently shallow check.
+func TestRun_EmptyStringArgumentIsRejected(t *testing.T) {
+	if code := Run([]string{""}); code != 2 {
+		t.Fatalf("an empty-string argument must exit 2, got %d", code)
+	}
+}
+
+// The degraded early return sits above the sort at the end of CheckIntegrity,
+// so Duplicated kept raw map iteration order and --json's output varied run to
+// run. Many ids and repeated runs, since one duplicate cannot show ordering.
+func TestIntegrity_DuplicatedIsSortedOnTheDegradedPath(t *testing.T) {
+	ids := []string{"d5", "d1", "d4", "d2", "d6", "d3"}
+	pool := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		pool = append(pool, task(id))
+	}
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/projects":
+			w.Write([]byte(`{"ok":true,"data":[{"id":"p_broken","title":"Inbox"}]}`))
+		case r.URL.Path == "/tasks":
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": pool})
+		default:
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+		}
+	})
+	want := []string{"d1", "d2", "d3", "d4", "d5", "d6"}
+	for i := 0; i < 12; i++ {
+		r, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(r.Duplicated) != len(want) {
+			t.Fatalf("run %d: got %v", i, r.Duplicated)
+		}
+		for j, id := range want {
+			if r.Duplicated[j] != id {
+				t.Fatalf("run %d: Duplicated must be sorted, got %v", i, r.Duplicated)
+			}
+		}
+	}
+}
+
+// A partial reference count read as authoritative invites the wrong conclusion.
+func TestIntegrity_ReferencedIsZeroedWhenIndexUnreadable(t *testing.T) {
+	srv := serverWithProjects(t, `[{"id":"p_ok","taskIds":["t1","t2"],"backlogTaskIds":[]},{"id":"p_broken","title":"Inbox"}]`)
+	r, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r.Referenced != 0 {
+		t.Fatalf("a partial reference count must not be reported, got %d", r.Referenced)
+	}
+}
+
+// A deterministic index error will fail identically on a re-pull, so the second
+// full store pull is pure cost.
+func TestConfirmed_IndexErrorSkipsTheSecondPass(t *testing.T) {
+	calls := 0
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/projects" {
+			calls++
+			w.Write([]byte(`{"ok":true,"data":[{"id":"p1","title":"Inbox"}]}`))
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+	})
+	if _, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("a deterministic index error must not trigger a re-pull, got %d /projects calls", calls)
 	}
 }

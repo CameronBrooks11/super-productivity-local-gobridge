@@ -116,6 +116,14 @@ sp-local-bridge doctor
 
 Download the new release binary and replace the existing one. Host configs do not need to change unless the binary path moves.
 
+Upgrading does not touch host configs, so a host that was configured stays configured. To confirm rather than assume:
+
+```sh
+sp-local-bridge configure --status
+```
+
+`scripts/install.sh` prints the same report at the end of an install.
+
 ## Uninstall
 
 1. Remove host configs first (while the binary is still available):

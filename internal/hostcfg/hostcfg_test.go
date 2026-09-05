@@ -1,7 +1,9 @@
 package hostcfg
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -680,4 +682,267 @@ func TestAppDataDir_FallsBackWhenUnset(t *testing.T) {
 	if want := filepath.Join(home, "AppData", "Roaming"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
+}
+
+func TestTomlHasEntryValid(t *testing.T) {
+	data := "[mcp_servers.superProductivity]\ncommand = \"sp-local-bridge\"\nargs = [\"mcp\"]\n"
+	if !tomlHasEntry(data, "mcp_servers", "superProductivity") {
+		t.Error("expected true for valid TOML entry")
+	}
+}
+
+func TestTomlHasEntryNoCommand(t *testing.T) {
+	// Has the header but no command key
+	data := "[mcp_servers.superProductivity]\nargs = [\"mcp\"]\n"
+	if tomlHasEntry(data, "mcp_servers", "superProductivity") {
+		t.Error("expected false when command key is missing")
+	}
+}
+
+func TestTomlHasEntryInComment(t *testing.T) {
+	// Header exists only in a comment
+	data := "# [mcp_servers.superProductivity]\ncommand = \"sp-local-bridge\"\n"
+	if tomlHasEntry(data, "mcp_servers", "superProductivity") {
+		t.Error("expected false when header is in a comment")
+	}
+}
+
+func TestTomlHasEntryDifferentSection(t *testing.T) {
+	// Command is in a different section
+	data := "[other.section]\ncommand = \"other\"\n\n[mcp_servers.superProductivity]\nargs = [\"mcp\"]\n"
+	if tomlHasEntry(data, "mcp_servers", "superProductivity") {
+		t.Error("expected false when command is in wrong section")
+	}
+}
+
+func TestTomlHasEntrySubstring(t *testing.T) {
+	// Header is a substring but not at line start
+	data := "x = \"[mcp_servers.superProductivity]\"\ncommand = \"sp-local-bridge\"\n"
+	if tomlHasEntry(data, "mcp_servers", "superProductivity") {
+		t.Error("expected false when header is inside a string value")
+	}
+}
+
+// --- Detection ---
+
+// writeHostConfig writes content to a host's config path under a temp HOME,
+// creating the parent directory.
+func writeHostConfig(t *testing.T, home, hostName, content string) {
+	t.Helper()
+	path := testConfigPath(home, hostName)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// detectionFor returns the Detection for one host, failing if it is absent.
+func detectionFor(t *testing.T, hostName string) Detection {
+	t.Helper()
+	for _, d := range DetectConfigured() {
+		if d.Host == hostName {
+			return d
+		}
+	}
+	t.Fatalf("no detection reported for host %q", hostName)
+	return Detection{}
+}
+
+func TestDetectConfigured_CoversEveryHost(t *testing.T) {
+	withTempHome(t)
+	got := DetectConfigured()
+	if len(got) != len(sortedHostNames()) {
+		t.Fatalf("expected one detection per host (%d), got %d", len(sortedHostNames()), len(got))
+	}
+	for _, d := range got {
+		if d.Configured {
+			t.Errorf("host %q reported configured under an empty HOME", d.Host)
+		}
+		if d.Scope != "" {
+			t.Errorf("host %q reported scope %q while not configured", d.Host, d.Scope)
+		}
+	}
+}
+
+func TestDetectConfigured_UserScope(t *testing.T) {
+	home := withTempHome(t)
+	writeHostConfig(t, home, HostClaudeCode,
+		`{"mcpServers":{"super-productivity":{"command":"sp-local-bridge","args":["mcp"]}}}`)
+
+	d := detectionFor(t, HostClaudeCode)
+	if !d.Configured {
+		t.Fatal("expected claude-code to be detected")
+	}
+	if d.Scope != ScopeUser {
+		t.Errorf("expected scope %q, got %q", ScopeUser, d.Scope)
+	}
+	if len(d.Projects) != 0 {
+		t.Errorf("expected no projects, got %v", d.Projects)
+	}
+}
+
+// A server added with `claude mcp add` lands in local scope by default, which
+// is stored per project rather than in the top-level map. Reading only the top
+// level reported "none configured" for a host that was configured and
+// connected.
+func TestDetectConfigured_LocalScopeOnly(t *testing.T) {
+	home := withTempHome(t)
+	writeHostConfig(t, home, HostClaudeCode,
+		`{"projects":{"/home/u/repo":{"mcpServers":{"super-productivity":{"command":"sp-local-bridge"}}}}}`)
+
+	d := detectionFor(t, HostClaudeCode)
+	if !d.Configured {
+		t.Fatal("expected a local-scope entry to count as configured")
+	}
+	if d.Scope != ScopeLocal {
+		t.Errorf("expected scope %q, got %q", ScopeLocal, d.Scope)
+	}
+	if len(d.Projects) != 1 || d.Projects[0] != "/home/u/repo" {
+		t.Errorf("expected [/home/u/repo], got %v", d.Projects)
+	}
+}
+
+// User scope answers "configured everywhere", so it wins the scope label, but
+// the projects are still reported: they are where the entry is pinned.
+func TestDetectConfigured_UserScopeWinsOverLocal(t *testing.T) {
+	home := withTempHome(t)
+	writeHostConfig(t, home, HostClaudeCode, `{
+		"mcpServers":{"super-productivity":{"command":"sp-local-bridge"}},
+		"projects":{"/home/u/repo":{"mcpServers":{"super-productivity":{"command":"sp-local-bridge"}}}}
+	}`)
+
+	d := detectionFor(t, HostClaudeCode)
+	if d.Scope != ScopeUser {
+		t.Errorf("expected scope %q, got %q", ScopeUser, d.Scope)
+	}
+	if len(d.Projects) != 1 {
+		t.Errorf("expected the local-scope project to still be reported, got %v", d.Projects)
+	}
+}
+
+func TestDetectConfigured_ProjectsSorted(t *testing.T) {
+	home := withTempHome(t)
+	writeHostConfig(t, home, HostClaudeCode, `{"projects":{
+		"/b":{"mcpServers":{"super-productivity":{"command":"x"}}},
+		"/a":{"mcpServers":{"super-productivity":{"command":"x"}}},
+		"/c":{"mcpServers":{"other":{"command":"x"}}}
+	}}`)
+
+	d := detectionFor(t, HostClaudeCode)
+	want := []string{"/a", "/b"}
+	if len(d.Projects) != len(want) {
+		t.Fatalf("expected %v, got %v", want, d.Projects)
+	}
+	for i := range want {
+		if d.Projects[i] != want[i] {
+			t.Fatalf("expected %v, got %v", want, d.Projects)
+		}
+	}
+}
+
+// Only Claude Code records per-project servers. A "projects" key in another
+// host's config must not be read as one.
+func TestDetectConfigured_LocalScopeIsClaudeCodeOnly(t *testing.T) {
+	home := withTempHome(t)
+	writeHostConfig(t, home, HostClaudeDesktop,
+		`{"projects":{"/home/u/repo":{"mcpServers":{"super-productivity":{"command":"x"}}}}}`)
+
+	d := detectionFor(t, HostClaudeDesktop)
+	if d.Configured {
+		t.Error("claude-desktop has no local scope; the entry should not be detected")
+	}
+}
+
+func TestDetectConfigured_TOMLHost(t *testing.T) {
+	home := withTempHome(t)
+	writeHostConfig(t, home, HostCodex,
+		"[mcp_servers.superProductivity]\ncommand = \"sp-local-bridge\"\n")
+
+	d := detectionFor(t, HostCodex)
+	if !d.Configured || d.Scope != ScopeUser {
+		t.Errorf("expected codex configured at user scope, got %+v", d)
+	}
+}
+
+// Detection is a diagnostic: an unreadable config must not stop the remaining
+// hosts from being reported.
+func TestDetectConfigured_MalformedJSONIsNotConfigured(t *testing.T) {
+	home := withTempHome(t)
+	writeHostConfig(t, home, HostClaudeCode, `{"mcpServers":`)
+	writeHostConfig(t, home, HostCodex,
+		"[mcp_servers.superProductivity]\ncommand = \"sp-local-bridge\"\n")
+
+	if d := detectionFor(t, HostClaudeCode); d.Configured {
+		t.Error("malformed JSON should not count as configured")
+	}
+	if d := detectionFor(t, HostCodex); !d.Configured {
+		t.Error("a malformed config for one host hid another host's entry")
+	}
+}
+
+func TestRunConfigure_Status_NoHostArgument(t *testing.T) {
+	withTempHome(t)
+	if code := RunConfigure([]string{"--status"}); code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+}
+
+func TestRunConfigure_Status_ReportsConfiguredHost(t *testing.T) {
+	home := withTempHome(t)
+	writeHostConfig(t, home, HostCodex,
+		"[mcp_servers.superProductivity]\ncommand = \"sp-local-bridge\"\n")
+
+	out := captureStdout(t, func() {
+		if code := RunConfigure([]string{"--status"}); code != 0 {
+			t.Fatalf("expected exit 0, got %d", code)
+		}
+	})
+
+	if !statusLineContains(out, HostCodex, "configured (user scope)") {
+		t.Errorf("expected codex reported as configured at user scope, got:\n%s", out)
+	}
+	// Hosts that are not configured have to appear too: the question the
+	// command answers is "which of these still needs configure?".
+	if !statusLineContains(out, HostClaudeDesktop, "not configured") {
+		t.Errorf("expected claude-desktop reported as not configured, got:\n%s", out)
+	}
+}
+
+// statusLineContains reports whether the status line naming host also contains
+// want, so assertions do not depend on column padding.
+func statusLineContains(out, host, want string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == host {
+			return strings.Contains(line, want)
+		}
+	}
+	return false
+}
+
+// captureStdout runs fn with os.Stdout redirected to a pipe and returns what it
+// wrote. The report is the whole point of --status, so asserting on the exit
+// status alone would not test it.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = orig }()
+
+	done := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		io.Copy(&buf, r)
+		done <- buf.String()
+	}()
+
+	fn()
+	w.Close()
+	return <-done
 }

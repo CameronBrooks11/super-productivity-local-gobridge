@@ -29,10 +29,16 @@ This checks:
 
 **Fix**:
 ```bash
-sp-local-bridge doctor        # Check what's wrong
-sp-local-bridge configure <host>  # Re-run configure
+sp-local-bridge configure --status  # Which hosts have an entry, and where
+sp-local-bridge doctor              # Check what else is wrong
+sp-local-bridge configure <host>    # Re-run configure
 ```
 Then restart the host application.
+
+For Claude Code, `--status` distinguishes *user* scope from *local* scope. A
+local-scope entry — what `claude mcp add` writes by default — applies only to
+the project directory it names, so it is reported with that directory. If you
+expect the bridge in a different project, add it there or use user scope.
 
 ### "command not found" after install
 

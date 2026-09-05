@@ -115,6 +115,7 @@ that point at them (`project.taskIds`, `project.backlogTaskIds`, `tag.taskIds`,
 |---|---|
 | **dangling** | A project or tag references a task that does not exist in any pool. |
 | **orphaned** | An active task exists that nothing references; it may be invisible in the UI. |
+| **duplicated** | A task appears in both the active and archived pools — an archive or restore was only partially applied. |
 
 Archived tasks are exempt from the orphan check: archiving removes a task from
 `project.taskIds`, so an unreferenced archived task is normal. They are still
@@ -139,6 +140,7 @@ $ sp-local-bridge doctor --json
   "archivedTasks": 17,
   "clean": true,
   "dangling": [],
+  "duplicated": [],
   "orphaned": [],
   "referenced": 277
 }
@@ -154,7 +156,15 @@ $ sp-local-bridge doctor --json
 | 3 | Every request succeeded, but the store is inconsistent. |
 
 `--json` follows the same table, so a script can distinguish a corrupt store
-(3) from a connection failure (1) without parsing output.
+(3) from a connection failure (1) without parsing output. On bad usage it
+writes the error and help to stderr, leaving stdout empty rather than
+contaminating the JSON stream.
+
+If any of the four pulls returns something that is not a list — `data: null`, an
+empty body, a non-JSON payload — the check reports an error naming that endpoint
+and exits 1 rather than reading it as "zero entities". Treating a degenerate
+response as an empty collection would make a healthy store look corrupt, and the
+warning it prints tells the user not to restore a backup.
 
 3 is distinct on purpose: it separates "cannot reach SP" from "SP answered, and
 its data is broken", which need different responses.

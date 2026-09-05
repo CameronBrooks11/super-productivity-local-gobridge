@@ -41,7 +41,10 @@ func withIDs(key string, ids ...string) map[string]any {
 
 func newStoreServer(t *testing.T, f storeFixture) *httptest.Server {
 	t.Helper()
-	write := func(w http.ResponseWriter, v any) {
+	// A nil slice boxed into any is not == nil, so it would encode as JSON null
+	// and the checker would (correctly) reject it as an unusable list. Fixtures
+	// that omit a collection mean "empty", so normalise to an empty slice.
+	write := func(w http.ResponseWriter, v []map[string]any) {
 		if v == nil {
 			v = []map[string]any{}
 		}
@@ -252,5 +255,130 @@ func TestRun_RejectsUnknownFlag(t *testing.T) {
 func TestRun_HelpExitsZero(t *testing.T) {
 	if code := Run([]string{"doctor", "--help"}); code != 0 {
 		t.Fatalf("--help must exit 0, got %d", code)
+	}
+}
+
+// --- Degenerate-but-successful responses ---
+//
+// The client reports Success(nil) for `{"ok":true,"data":null}`, for a 2xx with
+// an empty body, and for a 2xx carrying non-JSON. Reading any of those as "zero
+// entities" made a healthy store look corrupt — and the warning tells the user
+// not to import a backup, which is precisely the wrong advice when the store is
+// fine.
+
+func rawServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestIntegrity_NullIndexPayloadIsAnError(t *testing.T) {
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/projects" || r.URL.Path == "/tags" {
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": nil})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{task("t1")}})
+	})
+	_, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err == nil {
+		t.Fatal("a null index payload must be an error, not zero references")
+	}
+	if !strings.Contains(err.Error(), "/projects") {
+		t.Fatalf("error should name the endpoint that failed, got: %v", err)
+	}
+}
+
+func TestIntegrity_EmptyBodyIsAnError(t *testing.T) {
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "active" {
+			w.WriteHeader(http.StatusOK) // 200, no body
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+	})
+	if _, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL)); err == nil {
+		t.Fatal("a 200 with an empty body must be an error, not an empty task list")
+	}
+}
+
+// An empty array is a legitimate answer and must stay legal.
+func TestIntegrity_EmptyArraysAreValid(t *testing.T) {
+	r := check(t, storeFixture{})
+	if !r.Clean() {
+		t.Fatalf("an empty store is consistent, got %+v", r)
+	}
+}
+
+func TestIntegrity_ErrorNamesEndpointAndCode(t *testing.T) {
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/tags" {
+			w.WriteHeader(500)
+			json.NewEncoder(w).Encode(map[string]any{
+				"ok": false, "error": map[string]any{"code": "SP_ERROR", "message": "boom"},
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+	})
+	_, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	for _, want := range []string{"/tags", "SP_ERROR", "boom"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should mention %q, got: %v", want, err)
+		}
+	}
+}
+
+// A task in both pools is a partially-applied archive — the kind of
+// inconsistency this check exists for. Subtracting pool sizes hid it.
+func TestIntegrity_DetectsTaskInBothPools(t *testing.T) {
+	r := check(t, storeFixture{
+		active:   []map[string]any{task("t1"), task("both")},
+		archived: []map[string]any{task("both")},
+		projects: []map[string]any{withIDs("taskIds", "t1", "both")},
+	})
+	if len(r.Duplicated) != 1 || r.Duplicated[0] != "both" {
+		t.Fatalf("expected 'both' flagged as duplicated, got %v", r.Duplicated)
+	}
+	if r.Clean() {
+		t.Fatal("a task in both pools must not report clean")
+	}
+	if r.ArchivedTasks != 1 {
+		t.Fatalf("archived count must be counted directly, got %d", r.ArchivedTasks)
+	}
+}
+
+// --- exit-code precedence ---
+
+func TestExitCode_FailureOutranksInconsistency(t *testing.T) {
+	cases := []struct {
+		failures     int
+		inconsistent bool
+		want         int
+	}{
+		{0, false, 0},
+		{0, true, 3},
+		{1, false, 1},
+		{1, true, 1}, // a failed request makes the integrity verdict untrustworthy
+	}
+	for _, c := range cases {
+		if got := exitCode(c.failures, c.inconsistent); got != c.want {
+			t.Errorf("exitCode(%d, %v) = %d, want %d", c.failures, c.inconsistent, got, c.want)
+		}
+	}
+}
+
+func TestUsage_WritesToProvidedWriter(t *testing.T) {
+	var buf strings.Builder
+	usage(&buf)
+	if !strings.Contains(buf.String(), "--deep") {
+		t.Fatalf("usage should describe --deep, got: %s", buf.String())
 	}
 }

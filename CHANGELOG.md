@@ -12,7 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `doctor --deep` cross-references task entities against the project and tag
   indexes that point at them, reporting dangling references and orphaned active
   tasks. `--json` prints only that report. Exit code 3 distinguishes "SP
-  answered but its data is inconsistent" from a failed check (#28)
+  answered but its data is inconsistent" from a failed check. Also flags tasks
+  present in both the active and archived pools, which is a partially applied
+  archive or restore (#28)
 - `bridge.NewClientWithTimeout`, so a caller needing longer than the default
   10s per-request timeout can raise it. `http.Client.Timeout` caps every
   request regardless of the context deadline

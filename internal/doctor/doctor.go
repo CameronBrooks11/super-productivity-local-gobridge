@@ -33,7 +33,7 @@ func Run(args []string) int {
 		case "--json":
 			asJSON = true
 		case "--help", "-h":
-			usage()
+			usage(os.Stdout)
 			return 0
 		case "doctor":
 			// main.go forwards os.Args[1:], so the subcommand word arrives here.
@@ -41,8 +41,10 @@ func Run(args []string) int {
 			// Anything else is a typo. Ignoring it silently meant `doctor deep`
 			// ran a shallow check and still printed "All checks passed", so the
 			// user believed the integrity check had run.
+			// Help goes to stderr here: --json documents stdout as a JSON
+			// stream, and a usage dump would corrupt it for any script parsing it.
 			fmt.Fprintf(os.Stderr, "Error: unexpected argument '%s'\n", arg)
-			usage()
+			usage(os.Stderr)
 			return 2
 		}
 	}
@@ -162,6 +164,11 @@ func Run(args []string) int {
 
 	// Store integrity (opt-in: pulls the whole store)
 	inconsistent := false
+	if deep && !health.OK {
+		// Saying nothing here left a user who explicitly asked for --deep with
+		// no signal that it never ran.
+		fmt.Println("Store integrity... SKIPPED (health check failed)")
+	}
 	if deep && health.OK {
 		fmt.Print("Store integrity... ")
 		// The archived pull with includeDone is the largest response the bridge
@@ -197,30 +204,45 @@ func Run(args []string) int {
 	}
 
 	fmt.Println()
-	if failures > 0 {
+	code := exitCode(failures, inconsistent)
+	switch code {
+	case 1:
 		fmt.Printf("%d check(s) failed.\n", failures)
-		return 1
-	}
-	if inconsistent {
+	case 3:
 		// Not a failed check: every request succeeded. The store itself is the
 		// problem, and that is worth a distinct exit code so scripts can tell
 		// "cannot reach SP" from "SP answered, and its data is broken".
 		fmt.Println("Checks passed, but the store is inconsistent (see above).")
-		return 3
+	default:
+		fmt.Println("All checks passed.")
 	}
-	fmt.Println("All checks passed.")
-	return 0
+	return code
 }
 
-func usage() {
-	fmt.Println("Usage: sp-local-bridge doctor [OPTIONS]")
-	fmt.Println()
-	fmt.Println("Options:")
-	fmt.Println("  --deep    Also cross-check task entities against project/tag indexes.")
-	fmt.Println("            Pulls the whole store, so it is slower than the default run.")
-	fmt.Println("  --json    Print only the integrity report as JSON (implies --deep).")
-	fmt.Println()
-	fmt.Println("Exit codes: 0 ok, 1 a check failed, 2 bad usage, 3 store inconsistent.")
+func usage(w io.Writer) {
+	fmt.Fprintln(w, "Usage: sp-local-bridge doctor [OPTIONS]")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Options:")
+	fmt.Fprintln(w, "  --deep    Also cross-check task entities against project/tag indexes.")
+	fmt.Fprintln(w, "            Pulls the whole store, so it is slower than the default run.")
+	fmt.Fprintln(w, "  --json    Print only the integrity report as JSON (implies --deep).")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Exit codes: 0 ok, 1 a check failed, 2 bad usage, 3 store inconsistent.")
+}
+
+// exitCode maps the run's outcome to a process exit code.
+//
+// A failed check outranks an inconsistent store: if a request did not complete,
+// the integrity verdict is not trustworthy enough to report as one.
+func exitCode(failures int, inconsistent bool) int {
+	switch {
+	case failures > 0:
+		return 1
+	case inconsistent:
+		return 3
+	default:
+		return 0
+	}
 }
 
 // checkHostConfigs returns list of host names whose config files contain our entry.

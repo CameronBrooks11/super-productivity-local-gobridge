@@ -22,11 +22,12 @@ type IntegrityReport struct {
 	Referenced    int
 	Dangling      []string // referenced by an index, no task entity exists
 	Orphaned      []string // active task that no index references
+	Duplicated    []string // present in both the active and archived pools
 }
 
 // Clean reports whether the store is self-consistent.
 func (r IntegrityReport) Clean() bool {
-	return len(r.Dangling) == 0 && len(r.Orphaned) == 0
+	return len(r.Dangling) == 0 && len(r.Orphaned) == 0 && len(r.Duplicated) == 0
 }
 
 // idField pulls a string id out of a decoded JSON object.
@@ -50,12 +51,17 @@ func collectIDs(dst map[string]struct{}, m map[string]any, keys ...string) {
 	}
 }
 
-// asObjects coerces a decoded JSON array into a slice of objects, skipping
-// anything that is not one.
-func asObjects(data any) []map[string]any {
+// objectsOrError coerces a decoded JSON array into a slice of objects.
+//
+// A missing or non-array payload must not be read as "zero entities". The
+// client reports Success(nil) for `{"ok":true,"data":null}`, for a 2xx with an
+// empty body, and for a 2xx carrying non-JSON — and silently treating any of
+// those as an empty collection makes a healthy store look corrupt. An empty
+// array is different, and stays legal: a store really can have no tags.
+func objectsOrError(data any, endpoint string) ([]map[string]any, error) {
 	arr, ok := data.([]any)
 	if !ok {
-		return nil
+		return nil, fmt.Errorf("%s returned no usable list (got %T); cannot judge integrity", endpoint, data)
 	}
 	out := make([]map[string]any, 0, len(arr))
 	for _, item := range arr {
@@ -63,7 +69,24 @@ func asObjects(data any) []map[string]any {
 			out = append(out, obj)
 		}
 	}
-	return out
+	return out, nil
+}
+
+// fetchList runs one pull and names the endpoint in any error, so a failure
+// says which of the four requests broke rather than just how.
+func fetchList(res bridge.Result, endpoint string) ([]map[string]any, error) {
+	if !res.OK {
+		code := ""
+		if res.Error != nil && res.Error.Code != "" {
+			code = " [" + res.Error.Code + "]"
+		}
+		msg := ""
+		if res.Error != nil {
+			msg = res.Error.Message
+		}
+		return nil, fmt.Errorf("%s%s: %s", endpoint, code, msg)
+	}
+	return objectsOrError(res.Data, endpoint)
 }
 
 // CheckIntegrity fetches the whole store and cross-references entities against
@@ -77,25 +100,24 @@ func asObjects(data any) []map[string]any {
 func CheckIntegrity(ctx context.Context, client *bridge.Client) (IntegrityReport, error) {
 	var report IntegrityReport
 
-	activeRes := client.ListTasks(ctx, map[string]string{"source": "active", "includeDone": "true"})
-	if !activeRes.OK {
-		return report, fmt.Errorf("%s", activeRes.Error.Message)
+	activeTasks, err := fetchList(
+		client.ListTasks(ctx, map[string]string{"source": "active", "includeDone": "true"}), "/tasks?source=active")
+	if err != nil {
+		return report, err
 	}
-	archivedRes := client.ListTasks(ctx, map[string]string{"source": "archived", "includeDone": "true"})
-	if !archivedRes.OK {
-		return report, fmt.Errorf("%s", archivedRes.Error.Message)
+	archivedTasks, err := fetchList(
+		client.ListTasks(ctx, map[string]string{"source": "archived", "includeDone": "true"}), "/tasks?source=archived")
+	if err != nil {
+		return report, err
 	}
-	projects := client.ListProjects(ctx, nil)
-	if !projects.OK {
-		return report, fmt.Errorf("%s", projects.Error.Message)
+	projectList, err := fetchList(client.ListProjects(ctx, nil), "/projects")
+	if err != nil {
+		return report, err
 	}
-	tags := client.ListTags(ctx, nil)
-	if !tags.OK {
-		return report, fmt.Errorf("%s", tags.Error.Message)
+	tagList, err := fetchList(client.ListTags(ctx, nil), "/tags")
+	if err != nil {
+		return report, err
 	}
-
-	activeTasks := asObjects(activeRes.Data)
-	archivedTasks := asObjects(archivedRes.Data)
 
 	active := make(map[string]struct{}, len(activeTasks))
 	for _, t := range activeTasks {
@@ -103,23 +125,33 @@ func CheckIntegrity(ctx context.Context, client *bridge.Client) (IntegrityReport
 			active[id] = struct{}{}
 		}
 	}
-	known := make(map[string]struct{}, len(active)+len(archivedTasks))
+	// Count the archived pool directly rather than subtracting. A task present
+	// in both pools is itself a partially-applied archive — exactly the kind of
+	// inconsistency this check exists for — and subtraction would hide it.
+	archived := make(map[string]struct{}, len(archivedTasks))
+	for _, t := range archivedTasks {
+		if id, ok := idField(t, "id"); ok {
+			archived[id] = struct{}{}
+		}
+	}
+	known := make(map[string]struct{}, len(active)+len(archived))
 	for id := range active {
 		known[id] = struct{}{}
 	}
-	for _, t := range archivedTasks {
-		if id, ok := idField(t, "id"); ok {
-			known[id] = struct{}{}
+	for id := range archived {
+		if _, both := active[id]; both {
+			report.Duplicated = append(report.Duplicated, id)
 		}
+		known[id] = struct{}{}
 	}
 	report.ActiveTasks = len(active)
-	report.ArchivedTasks = len(known) - len(active)
+	report.ArchivedTasks = len(archived)
 
 	referenced := make(map[string]struct{})
-	for _, p := range asObjects(projects.Data) {
+	for _, p := range projectList {
 		collectIDs(referenced, p, "taskIds", "backlogTaskIds")
 	}
-	for _, tag := range asObjects(tags.Data) {
+	for _, tag := range tagList {
 		collectIDs(referenced, tag, "taskIds")
 	}
 	// Subtasks are referenced by their parent in either pool.
@@ -143,6 +175,7 @@ func CheckIntegrity(ctx context.Context, client *bridge.Client) (IntegrityReport
 	}
 	sort.Strings(report.Dangling)
 	sort.Strings(report.Orphaned)
+	sort.Strings(report.Duplicated)
 	return report, nil
 }
 
@@ -177,6 +210,11 @@ func printIntegrity(report IntegrityReport) bool {
 		fmt.Printf("  orphaned tasks      : %d  %s\n", len(report.Orphaned), sample(report.Orphaned, 3))
 		fmt.Println("    Active tasks that nothing references; they may be invisible in the UI.")
 	}
+	if len(report.Duplicated) > 0 {
+		fmt.Printf("  in both pools       : %d  %s\n", len(report.Duplicated), sample(report.Duplicated, 3))
+		fmt.Println("    Tasks listed as both active and archived; an archive or restore")
+		fmt.Println("    was only partially applied.")
+	}
 	fmt.Println()
 	fmt.Println("  The store is inconsistent. Restart Super Productivity and re-run.")
 	fmt.Println("  Do NOT import a backup taken while this warning is showing — backups are")
@@ -199,6 +237,10 @@ func integrityJSON(report IntegrityReport) string {
 	}
 	if report.Orphaned == nil {
 		payload["orphaned"] = []string{}
+	}
+	payload["duplicated"] = report.Duplicated
+	if report.Duplicated == nil {
+		payload["duplicated"] = []string{}
 	}
 	out, _ := json.MarshalIndent(payload, "", "  ")
 	return string(out)

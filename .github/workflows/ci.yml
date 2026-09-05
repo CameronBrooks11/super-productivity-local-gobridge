@@ -32,7 +32,12 @@ jobs:
       - name: Build
         run: go build ./...
       - name: Vet
-        run: go vet ./...
+        run: |
+          go vet ./...
+          # The live suite is excluded from ./... by its build tag, so nothing
+          # else type-checks it. Without this a client rename lands green and
+          # breaks the suite just before a release, when it is most needed.
+          go vet -tags live ./...
       - name: Test
         run: go test ./... -count=1 -race -coverprofile=coverage.out
       - name: Coverage

@@ -176,9 +176,14 @@ func TestLive_TagFields(t *testing.T) {
 func TestLive_StatusAndHealthFields(t *testing.T) {
 	client := liveClient(t)
 	status := liveObject(t, client.Status(context.Background()), "status")
+	// currentTaskId is always present and null when nothing is tracked, so it is
+	// required-and-nullable. Marking it optional as well made the spec vacuous:
+	// absence was excused by one flag and null by the other, leaving nothing
+	// that could fail if SP dropped or renamed it.
 	checkFields(t, []map[string]any{status}, "status", []fieldSpec{
 		{name: "taskCount", jsonType: "number"},
-		{name: "currentTaskId", jsonType: "string", optional: true, nullable: true},
+		{name: "currentTaskId", jsonType: "string", nullable: true},
+		{name: "currentTask", jsonType: "object", nullable: true},
 	})
 
 	health := liveObject(t, client.Health(context.Background()), "health")
@@ -244,6 +249,18 @@ var knownOptional = map[string]bool{
 	"issueLastUpdated": true,
 }
 
+// checkedFixtures is the set TestLive_FixturesDoNotInventFields covers, named
+// separately so TestLive_EveryResponseFixtureIsChecked can hold it to account.
+var checkedFixtures = []string{
+	"task-list-ok.json",
+	"task-create-ok.json",
+	"task-update-ok.json",
+	"project-list-ok.json",
+	"tag-list-ok.json",
+	"status-ok.json",
+	"health-ok.json",
+}
+
 func TestLive_FixturesDoNotInventFields(t *testing.T) {
 	client := liveClient(t)
 	ctx := context.Background()
@@ -291,20 +308,29 @@ func TestLive_FixturesDoNotInventFields(t *testing.T) {
 func liveTasks(t *testing.T, client *Client) []map[string]any {
 	t.Helper()
 	ctx := context.Background()
-	all := objects(t, client.ListTasks(ctx, map[string]string{
-		"source": "active", "includeDone": "true",
-	}), "task/active")
-	archived := client.ListTasks(ctx, map[string]string{
-		"source": "archived", "includeDone": "true",
-	})
-	if archived.OK {
-		if arr, ok := archived.Data.([]any); ok {
-			for _, item := range arr {
-				if obj, ok := item.(map[string]any); ok {
-					all = append(all, obj)
-				}
-			}
+	var all []map[string]any
+	for _, source := range []string{"active", "archived"} {
+		res := client.ListTasks(ctx, map[string]string{"source": source, "includeDone": "true"})
+		if !res.OK {
+			t.Fatalf("task/%s: %s", source, res.Error.Message)
 		}
+		arr, ok := res.Data.([]any)
+		if !ok {
+			t.Fatalf("task/%s: expected a list, got %s", source, jsonType(res.Data))
+		}
+		for _, item := range arr {
+			obj, ok := item.(map[string]any)
+			if !ok {
+				t.Fatalf("task/%s: expected objects, got %s", source, jsonType(item))
+			}
+			all = append(all, obj)
+		}
+	}
+	// Skip only if the union is empty. Skipping on an empty active pool alone
+	// meant a store whose tasks had all been archived checked nothing, which is
+	// the same silent no-op this suite exists to prevent.
+	if len(all) == 0 {
+		t.Skip("the store has no tasks in either pool, so there is nothing to check")
 	}
 	return all
 }
@@ -392,4 +418,53 @@ func sortedTypeNames(m map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// A fixture added later is silently unchecked unless someone remembers to list
+// it, which is the same kind of quiet gap this suite exists to close. This
+// fails when testdata holds a response fixture the drift check does not cover.
+//
+// Request fixtures describe what the bridge sends, and error fixtures describe
+// failures a read-only run cannot provoke, so both are excluded by name.
+func TestLive_EveryResponseFixtureIsChecked(t *testing.T) {
+	dir := filepath.Join("..", "..", "testdata", "fixtures")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading fixtures: %v", err)
+	}
+	checked := map[string]bool{}
+	for _, name := range checkedFixtures {
+		checked[name] = true
+	}
+	for _, e := range entries {
+		name := e.Name()
+		switch {
+		case !strings.HasSuffix(name, ".json"),
+			strings.HasSuffix(name, "-request.json"),
+			strings.Contains(name, "-error"):
+			continue
+		}
+		if !checked[name] {
+			t.Errorf("%s is a response fixture but is not in checkedFixtures, so nothing verifies it against SP", name)
+		}
+	}
+	for name := range checked {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("checkedFixtures names %s, which does not exist", name)
+		}
+	}
+}
+
+// The suite skips rather than fails when SP is unreachable or a collection is
+// empty, so a run that asserted nothing still exits 0 and reads as "verified"
+// before a release. This makes that state loud.
+func TestLive_StoreHasSomethingToCheck(t *testing.T) {
+	client := liveClient(t)
+	ctx := context.Background()
+	tasks, _ := client.ListTasks(ctx, map[string]string{"source": "all", "includeDone": "true"}).Data.([]any)
+	projects, _ := client.ListProjects(ctx, nil).Data.([]any)
+	if len(tasks) == 0 && len(projects) == 0 {
+		t.Fatal("the store has no tasks and no projects, so this run verified nothing; " +
+			"point SP_BASE_URL at a populated store before treating a pass as meaningful")
+	}
 }

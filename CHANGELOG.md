@@ -57,6 +57,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The migration guide said the Python bridge is not on PyPI. The name is now
+  registered there — as yanked releases, so the name is held without being
+  installable by accident — and the rollback documents the exact-pin form
+  alongside the release wheel URL (#41)
+
 - Documentation no longer presents the Python bridge as a current option. It was
   archived on 2026-09-05 and is read-only; the README, migration guide and docs
   sidebar say so, and a rollback is marked as a stopgap rather than a

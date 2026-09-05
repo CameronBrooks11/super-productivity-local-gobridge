@@ -42,7 +42,7 @@ project only.
 project directory for a local-scope entry:
 
 ```
-claude-code          configured (local scope: /home/you/repo)
+  claude-code          configured (local scope: /home/you/repo)
 ```
 
 It does not read the project scope in a repo's `.mcp.json`, so an entry added

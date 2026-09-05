@@ -37,7 +37,7 @@ func Usage() {
 	fmt.Println()
 	fmt.Println("Subcommands:")
 	fmt.Println("  mcp                          Run MCP stdio server")
-	fmt.Println("  doctor                       Run diagnostics")
+	fmt.Println("  doctor [--deep] [--json]     Run diagnostics (--deep also checks store integrity)")
 	fmt.Println("  print-config                 Print host config")
 	fmt.Println("  configure                    Write host config")
 	fmt.Println("                               Hosts: claude-code, claude-desktop, vscode-copilot, codex")

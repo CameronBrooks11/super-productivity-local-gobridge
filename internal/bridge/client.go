@@ -21,15 +21,27 @@ type Client struct {
 	httpClient *http.Client
 }
 
-// NewClient creates a new SP REST client.
+// NewClient creates a new SP REST client with the default per-request timeout.
 func NewClient(baseURL string) *Client {
+	return NewClientWithTimeout(baseURL, defaultTimeout)
+}
+
+// NewClientWithTimeout creates a client with a caller-chosen per-request
+// timeout. http.Client.Timeout caps every request regardless of the context
+// deadline, so a caller that needs longer than defaultTimeout — pulling the
+// whole task store, say — must raise it here rather than only widening the
+// context. A non-positive timeout falls back to the default.
+func NewClientWithTimeout(baseURL string, timeout time.Duration) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
+	}
+	if timeout <= 0 {
+		timeout = defaultTimeout
 	}
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{
-			Timeout: defaultTimeout,
+			Timeout: timeout,
 		},
 	}
 }

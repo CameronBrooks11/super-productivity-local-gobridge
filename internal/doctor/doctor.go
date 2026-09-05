@@ -18,11 +18,89 @@ import (
 	"github.com/CameronBrooks11/super-productivity-local-gobridge/internal/version"
 )
 
+// deepTimeout caps each individual request in the --deep pull, which is far
+// larger than anything the standard checks fetch.
+const deepTimeout = 60 * time.Second
+
+// deepTotalTimeout is the ceiling for the whole confirmation run: up to two
+// passes of four requests, each capped at deepTimeout. The per-request cap is
+// what actually bounds a hung request; this only stops the run as a whole from
+// outliving its worst case. Sizing it any tighter starves the second pass and
+// marks large stores unconfirmed.
+const deepTotalTimeout = 2 * 4 * deepTimeout
+
 // Run executes the doctor diagnostics. Returns exit code.
 func Run(args []string) int {
+	deep := false
+	asJSON := false
+	wantHelp := false
+	var bad string
+
+	for i, arg := range args {
+		switch arg {
+		case "--deep":
+			deep = true
+		case "--json":
+			asJSON = true
+		case "--help", "-h":
+			wantHelp = true
+		case "doctor":
+			// main.go forwards os.Args[1:], so the subcommand word arrives as
+			// args[0]. Only tolerate it there: `doctor --deep doctor` is a typo.
+			if i != 0 {
+				bad = arg
+			}
+		default:
+			// Ignoring an unrecognised argument silently meant `doctor deep`
+			// ran a shallow check and still printed "All checks passed", so the
+			// user believed the integrity check had run.
+			bad = arg
+		}
+	}
+
+	// --json documents stdout as a JSON stream, so nothing else may go there.
+	helpOut := io.Writer(os.Stdout)
+	if asJSON {
+		helpOut = os.Stderr
+	}
+	if bad != "" {
+		fmt.Fprintf(os.Stderr, "Error: unexpected argument '%s'\n", bad)
+		usage(os.Stderr)
+		return 2
+	}
+	if wantHelp {
+		usage(helpOut)
+		return 0
+	}
+
 	baseURL := bridge.DefaultBaseURL
 	if env := os.Getenv("SP_BASE_URL"); env != "" {
 		baseURL = env
+	}
+
+	if asJSON {
+		client := bridge.NewClientWithTimeout(baseURL, deepTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), deepTotalTimeout)
+		defer cancel()
+		report, err := CheckIntegrityConfirmed(ctx, client)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+			return 1
+		}
+		fmt.Println(integrityJSON(report))
+		switch {
+		case report.HasConfirmedAnomalies():
+			// Survived both passes, so exit 3 regardless of anything else the
+			// run could not resolve.
+			return 3
+		case !report.Confirmed():
+			// Nothing seen twice. Exit 3 promises "SP answered and its data is
+			// broken"; claiming that from a single observation is the false
+			// positive confirmation exists to prevent.
+			return 1
+		default:
+			return 0
+		}
 	}
 
 	fmt.Printf("sp-local-bridge doctor (%s)\n", version.String())
@@ -111,6 +189,38 @@ func Run(args []string) int {
 		}
 	}
 
+	// Store integrity (opt-in: pulls the whole store)
+	inconsistent := false
+	if deep && !health.OK {
+		// Saying nothing here left a user who explicitly asked for --deep with
+		// no signal that it never ran.
+		fmt.Println("Store integrity... SKIPPED (health check failed)")
+	}
+	if deep && health.OK {
+		fmt.Print("Store integrity... ")
+		// The archived pull with includeDone is the largest response the bridge
+		// ever requests, so it gets its own client: http.Client.Timeout caps
+		// each request independently of the context deadline.
+		deepClient := bridge.NewClientWithTimeout(baseURL, deepTimeout)
+		deepCtx, deepCancel := context.WithTimeout(context.Background(), deepTotalTimeout)
+		defer deepCancel()
+		report, err := CheckIntegrityConfirmed(deepCtx, deepClient)
+		if err != nil {
+			fmt.Printf("FAILED: %s\n", err)
+			failures++
+		} else if !printIntegrity(report) {
+			if report.HasConfirmedAnomalies() {
+				// Something survived both passes. A race elsewhere in the store
+				// does not make it less real, so it still gets exit 3.
+				inconsistent = true
+			} else {
+				// Nothing was seen twice; treat it as a check that did not
+				// complete rather than as evidence the store is broken.
+				failures++
+			}
+		}
+	}
+
 	// MCP self-check
 	fmt.Print("MCP self-check... ")
 	if mcpErr := checkMCPSelf(exe); mcpErr != "" {
@@ -129,12 +239,45 @@ func Run(args []string) int {
 	}
 
 	fmt.Println()
-	if failures > 0 {
+	code := exitCode(failures, inconsistent)
+	switch code {
+	case 1:
 		fmt.Printf("%d check(s) failed.\n", failures)
-		return 1
+	case 3:
+		// Not a failed check: every request succeeded. The store itself is the
+		// problem, and that is worth a distinct exit code so scripts can tell
+		// "cannot reach SP" from "SP answered, and its data is broken".
+		fmt.Println("Checks passed, but the store is inconsistent (see above).")
+	default:
+		fmt.Println("All checks passed.")
 	}
-	fmt.Println("All checks passed.")
-	return 0
+	return code
+}
+
+func usage(w io.Writer) {
+	fmt.Fprintln(w, "Usage: sp-local-bridge doctor [OPTIONS]")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Options:")
+	fmt.Fprintln(w, "  --deep    Also cross-check task entities against project/tag indexes.")
+	fmt.Fprintln(w, "            Pulls the whole store, so it is slower than the default run.")
+	fmt.Fprintln(w, "  --json    Print only the integrity report as JSON (runs the deep check).")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Exit codes: 0 ok, 1 a check failed, 2 bad usage, 3 store inconsistent.")
+}
+
+// exitCode maps the run's outcome to a process exit code.
+//
+// A failed check outranks an inconsistent store: if a request did not complete,
+// the integrity verdict is not trustworthy enough to report as one.
+func exitCode(failures int, inconsistent bool) int {
+	switch {
+	case failures > 0:
+		return 1
+	case inconsistent:
+		return 3
+	default:
+		return 0
+	}
 }
 
 // checkHostConfigs returns list of host names whose config files contain our entry.

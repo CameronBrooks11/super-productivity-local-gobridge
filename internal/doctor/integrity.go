@@ -36,6 +36,13 @@ func (r IntegrityReport) Clean() bool {
 	return len(r.Dangling) == 0 && len(r.Orphaned) == 0 && len(r.Duplicated) == 0
 }
 
+// Confirmed reports whether the two passes agreed. An unconfirmed report is not
+// a verdict in either direction: its anomalies were seen once and may be a race,
+// and a clean-looking one may be hiding anomalies the second pass saw.
+func (r IntegrityReport) Confirmed() bool {
+	return !r.Unconfirmed
+}
+
 // idField pulls a string id out of a decoded JSON object.
 func idField(m map[string]any, key string) (string, bool) {
 	v, ok := m[key].(string)
@@ -218,7 +225,7 @@ func intersect(a, b []string) []string {
 }
 
 // CheckIntegrityConfirmed runs the check and, when it finds anomalies, repeats
-// it and keeps only those that appear in both passes.
+// it and reports only those seen in both passes.
 //
 // The four pulls are not an atomic snapshot of a live app. A task added in the
 // UI between the task pull and the project pull lands in project.taskIds but
@@ -227,7 +234,10 @@ func intersect(a, b []string) []string {
 // normal use, and both would otherwise print "the store is inconsistent" along
 // with advice not to restore a backup.
 //
-// A genuine inconsistency persists across passes; a race does not.
+// A genuine inconsistency persists across passes; a race does not. Anything the
+// two passes disagree about is reported as unconfirmed rather than as either a
+// clean store or a confirmed inconsistency — reporting clean would hide real
+// corruption that the second pass saw.
 func CheckIntegrityConfirmed(ctx context.Context, client *bridge.Client) (IntegrityReport, error) {
 	first, err := CheckIntegrity(ctx, client)
 	if err != nil || first.Clean() {
@@ -236,8 +246,8 @@ func CheckIntegrityConfirmed(ctx context.Context, client *bridge.Client) (Integr
 
 	second, err := CheckIntegrity(ctx, client)
 	if err != nil {
-		// The confirmation pull failed; report the first pass rather than
-		// claiming a verdict we could not confirm.
+		// The confirmation pull failed, so every anomaly was seen exactly once
+		// and may just be a race. Report it as unconfirmed, never as a verdict.
 		first.Unconfirmed = true
 		return first, nil
 	}
@@ -246,9 +256,21 @@ func CheckIntegrityConfirmed(ctx context.Context, client *bridge.Client) (Integr
 	confirmed.Dangling = intersect(first.Dangling, second.Dangling)
 	confirmed.Orphaned = intersect(first.Orphaned, second.Orphaned)
 	confirmed.Duplicated = intersect(first.Duplicated, second.Duplicated)
+
+	// Anomalies present in the first pass but not the second are transient.
 	confirmed.Transient = (len(first.Dangling) - len(confirmed.Dangling)) +
 		(len(first.Orphaned) - len(confirmed.Orphaned)) +
 		(len(first.Duplicated) - len(confirmed.Duplicated))
+
+	// Anomalies the second pass saw that the first did not were also seen only
+	// once. Dropping them silently would let a store the second pass found
+	// corrupt be reported clean.
+	appearedLate := (len(second.Dangling) - len(confirmed.Dangling)) +
+		(len(second.Orphaned) - len(confirmed.Orphaned)) +
+		(len(second.Duplicated) - len(confirmed.Duplicated))
+	if appearedLate > 0 {
+		confirmed.Unconfirmed = true
+	}
 	return confirmed, nil
 }
 
@@ -263,6 +285,17 @@ func sample(ids []string, n int) string {
 
 // printIntegrity renders the report. Returns true when the store is clean.
 func printIntegrity(report IntegrityReport) bool {
+	if report.Unconfirmed {
+		fmt.Println("UNCONFIRMED")
+		fmt.Printf("  active tasks        : %d\n", report.ActiveTasks)
+		fmt.Printf("  archived tasks      : %d\n", report.ArchivedTasks)
+		fmt.Println()
+		fmt.Println("  The two passes disagreed, so no verdict could be reached. This")
+		fmt.Println("  usually means the store was being edited while the check ran, or")
+		fmt.Println("  Super Productivity became unreachable partway through.")
+		fmt.Println("  Re-run with the app idle.")
+		return false
+	}
 	if report.Clean() {
 		fmt.Println("OK")
 		if report.Transient > 0 {
@@ -293,9 +326,6 @@ func printIntegrity(report IntegrityReport) bool {
 	}
 	if report.Transient > 0 {
 		fmt.Printf("  (%d anomal(ies) from the first pass did not recur and were ignored)\n", report.Transient)
-	}
-	if report.Unconfirmed {
-		fmt.Println("  NOTE: the confirmation pass could not run, so these are unconfirmed.")
 	}
 	fmt.Println()
 	fmt.Println("  The store is inconsistent. Restart Super Productivity and re-run.")

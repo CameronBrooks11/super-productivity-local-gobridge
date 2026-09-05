@@ -139,7 +139,6 @@ $ sp-local-bridge doctor --json
   "activeTasks": 277,
   "archivedTasks": 17,
   "clean": true,
-  "clean": true,
   "dangling": [],
   "duplicated": [],
   "orphaned": [],
@@ -154,9 +153,9 @@ $ sp-local-bridge doctor --json
 | Code | Meaning |
 |---|---|
 | 0 | All checks passed. |
-| 1 | A check failed (for example, SP is unreachable). |
+| 1 | A check failed (for example, SP is unreachable), or no verdict could be reached. |
 | 2 | Bad usage (unknown flag or unexpected argument). |
-| 3 | Every request succeeded, but the store is inconsistent. |
+| 3 | Every request succeeded, both passes agreed, and the store is inconsistent. |
 
 `--json` follows the same table, so a script can distinguish a corrupt store
 (3) from a connection failure (1) without parsing output. On bad usage it
@@ -184,8 +183,11 @@ those present in **both** passes. A genuine inconsistency persists; a race does
 not. `transient` counts the first-pass anomalies that were discarded, and a
 non-zero value simply means the store was being edited while the check ran.
 
-`unconfirmed` is set when the second pass could not be run, meaning the reported
-anomalies were seen only once.
+`unconfirmed` is set when the two passes could not be reconciled — the second
+pass failed, or it saw anomalies the first did not. An unconfirmed report is
+**not a verdict in either direction**: its anomalies were seen once and may be a
+race, and a clean-looking one may be hiding anomalies only the second pass saw.
+It therefore exits 1, not 3 or 0. Re-run with the app idle.
 
 ### If it warns
 

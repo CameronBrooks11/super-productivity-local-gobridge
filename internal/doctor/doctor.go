@@ -18,36 +18,60 @@ import (
 	"github.com/CameronBrooks11/super-productivity-local-gobridge/internal/version"
 )
 
-// deepTimeout bounds the --deep store pull, which is far larger than any
-// request the standard checks make.
+// deepTimeout caps each individual request in the --deep pull, which is far
+// larger than anything the standard checks fetch.
 const deepTimeout = 60 * time.Second
+
+// deepTotalTimeout bounds the whole confirmation run. CheckIntegrityConfirmed
+// makes up to two passes of four requests, so sharing a single deepTimeout
+// across both would starve the second pass and mark every large store
+// unconfirmed.
+const deepTotalTimeout = 2*deepTimeout + 10*time.Second
 
 // Run executes the doctor diagnostics. Returns exit code.
 func Run(args []string) int {
 	deep := false
 	asJSON := false
-	for _, arg := range args {
+	wantHelp := false
+	var bad string
+
+	for i, arg := range args {
 		switch arg {
 		case "--deep":
 			deep = true
 		case "--json":
 			asJSON = true
 		case "--help", "-h":
-			usage(os.Stdout)
-			return 0
+			wantHelp = true
 		case "doctor":
-			// main.go forwards os.Args[1:], so the subcommand word arrives here.
+			// main.go forwards os.Args[1:], so the subcommand word arrives as
+			// args[0]. Only tolerate it there: `doctor --deep doctor` is a typo.
+			if i != 0 {
+				bad = arg
+			}
 		default:
-			// Anything else is a typo. Ignoring it silently meant `doctor deep`
+			// Ignoring an unrecognised argument silently meant `doctor deep`
 			// ran a shallow check and still printed "All checks passed", so the
 			// user believed the integrity check had run.
-			// Help goes to stderr here: --json documents stdout as a JSON
-			// stream, and a usage dump would corrupt it for any script parsing it.
-			fmt.Fprintf(os.Stderr, "Error: unexpected argument '%s'\n", arg)
-			usage(os.Stderr)
-			return 2
+			bad = arg
 		}
 	}
+
+	// --json documents stdout as a JSON stream, so nothing else may go there.
+	helpOut := io.Writer(os.Stdout)
+	if asJSON {
+		helpOut = os.Stderr
+	}
+	if bad != "" {
+		fmt.Fprintf(os.Stderr, "Error: unexpected argument '%s'\n", bad)
+		usage(os.Stderr)
+		return 2
+	}
+	if wantHelp {
+		usage(helpOut)
+		return 0
+	}
+
 	baseURL := bridge.DefaultBaseURL
 	if env := os.Getenv("SP_BASE_URL"); env != "" {
 		baseURL = env
@@ -55,7 +79,7 @@ func Run(args []string) int {
 
 	if asJSON {
 		client := bridge.NewClientWithTimeout(baseURL, deepTimeout)
-		ctx, cancel := context.WithTimeout(context.Background(), deepTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), deepTotalTimeout)
 		defer cancel()
 		report, err := CheckIntegrityConfirmed(ctx, client)
 		if err != nil {
@@ -63,12 +87,17 @@ func Run(args []string) int {
 			return 1
 		}
 		fmt.Println(integrityJSON(report))
-		if !report.Clean() {
-			// Same contract as the human path: 3 means SP answered and its data
-			// is broken, which a script must not confuse with a failed request.
+		switch {
+		case !report.Confirmed():
+			// The passes disagreed, so there is no verdict. Exit 3 promises "SP
+			// answered and its data is broken"; claiming that from a single
+			// observation is the false positive confirmation exists to prevent.
+			return 1
+		case !report.Clean():
 			return 3
+		default:
+			return 0
 		}
-		return 0
 	}
 
 	fmt.Printf("sp-local-bridge doctor (%s)\n", version.String())
@@ -170,14 +199,20 @@ func Run(args []string) int {
 		// ever requests, so it gets its own client: http.Client.Timeout caps
 		// each request independently of the context deadline.
 		deepClient := bridge.NewClientWithTimeout(baseURL, deepTimeout)
-		deepCtx, deepCancel := context.WithTimeout(context.Background(), deepTimeout)
+		deepCtx, deepCancel := context.WithTimeout(context.Background(), deepTotalTimeout)
 		defer deepCancel()
 		report, err := CheckIntegrityConfirmed(deepCtx, deepClient)
 		if err != nil {
 			fmt.Printf("FAILED: %s\n", err)
 			failures++
 		} else if !printIntegrity(report) {
-			inconsistent = true
+			if report.Confirmed() {
+				inconsistent = true
+			} else {
+				// No verdict reached; treat it as a check that did not complete
+				// rather than as evidence the store is broken.
+				failures++
+			}
 		}
 	}
 

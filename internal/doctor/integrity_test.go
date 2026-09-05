@@ -535,3 +535,112 @@ func TestIntegrityJSON_ContainsDocumentedKeys(t *testing.T) {
 		}
 	}
 }
+
+// --- Unconfirmed reports are not verdicts ---
+//
+// Exit 3 promises "SP answered and its data is broken". Claiming that from a
+// single observation is exactly the false positive the confirmation pass was
+// added to prevent, and reporting clean when only the second pass saw anomalies
+// would hide real corruption.
+
+// shiftingServer reports a different anomaly on each pass, so the intersection
+// is empty even though both passes saw one.
+func shiftingServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	round := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		enc := func(v any) { json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": v}) }
+		switch {
+		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
+			enc([]map[string]any{})
+		case r.URL.Path == "/tasks":
+			enc([]map[string]any{task("t1")})
+		case r.URL.Path == "/projects":
+			round++
+			ghost := "GHOST2"
+			if round == 1 {
+				ghost = "GHOST1"
+			}
+			enc([]map[string]any{withIDs("taskIds", "t1", ghost)})
+		default:
+			enc([]map[string]any{})
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestConfirmed_ShiftingAnomaliesAreNotReportedClean(t *testing.T) {
+	srv := shiftingServer(t)
+	r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r.Confirmed() {
+		t.Fatal("passes disagreed; the report must be marked unconfirmed")
+	}
+	if !r.Clean() {
+		t.Fatal("precondition: the intersection here is empty")
+	}
+}
+
+func TestRun_ShiftingAnomaliesExitOneNotZero(t *testing.T) {
+	srv := shiftingServer(t)
+	t.Setenv("SP_BASE_URL", srv.URL)
+	if code := Run([]string{"doctor", "--json"}); code != 1 {
+		t.Fatalf("an unconfirmed report must exit 1, got %d", code)
+	}
+}
+
+// The confirmation pass failing means every anomaly was seen once.
+func TestConfirmed_FailedSecondPassIsUnconfirmed(t *testing.T) {
+	round := 0
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/projects" {
+			round++
+			if round > 1 {
+				w.WriteHeader(500)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		enc := func(v any) { json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": v}) }
+		switch {
+		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
+			enc([]map[string]any{})
+		case r.URL.Path == "/tasks":
+			enc([]map[string]any{task("t1")})
+		case r.URL.Path == "/projects":
+			enc([]map[string]any{withIDs("taskIds", "t1", "GHOST")})
+		default:
+			enc([]map[string]any{})
+		}
+	})
+	r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("a failed confirmation is not a hard error: %v", err)
+	}
+	if r.Confirmed() {
+		t.Fatal("a failed confirmation pass must mark the report unconfirmed")
+	}
+	t.Setenv("SP_BASE_URL", srv.URL)
+	// Fresh rounds for the Run() call; the anomaly persists, the confirmation fails.
+	if code := Run([]string{"doctor", "--json"}); code == 3 {
+		t.Fatal("an unconfirmed report must not claim exit 3")
+	}
+}
+
+// --json documents stdout as a JSON stream, so help must not land there.
+func TestRun_HelpWithJSONKeepsStdoutClean(t *testing.T) {
+	if code := Run([]string{"doctor", "--json", "--help"}); code != 0 {
+		t.Fatalf("--help must exit 0, got %d", code)
+	}
+}
+
+// The subcommand word is only legal as args[0].
+func TestRun_StrayDoctorTokenRejected(t *testing.T) {
+	if code := Run([]string{"doctor", "--deep", "doctor"}); code != 2 {
+		t.Fatalf("a repeated subcommand word is a typo; want exit 2, got %d", code)
+	}
+}

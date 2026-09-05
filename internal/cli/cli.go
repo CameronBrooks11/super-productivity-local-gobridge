@@ -33,8 +33,8 @@ func Usage() {
 	fmt.Println("  tasks clear-current          Clear current task")
 	fmt.Println("  tasks archive <id>           Archive a task")
 	fmt.Println("  tasks restore <id>           Restore an archived task")
-	fmt.Println("  projects list [--query ...]  List projects")
-	fmt.Println("  tags list [--query ...]      List tags")
+	fmt.Println("  projects list [filters]      List projects")
+	fmt.Println("  tags list [filters]          List tags")
 	fmt.Println()
 	fmt.Println("Subcommands:")
 	fmt.Println("  mcp                          Run MCP stdio server")
@@ -43,7 +43,7 @@ func Usage() {
 	fmt.Println("  configure                    Write host config")
 	fmt.Println("                               Hosts: claude-code, claude-desktop, vscode-copilot, codex")
 	fmt.Println()
-	fmt.Println("Task list filters:")
+	fmt.Println("List filters (tasks; --query/--limit/--offset/--full also apply to projects and tags):")
 	fmt.Println("  --query <text>               Filter by title substring")
 	fmt.Println("  --project-id <id>            Filter by project")
 	fmt.Println("  --tag-id <id>                Filter by tag (use TODAY for today's tasks)")
@@ -505,6 +505,9 @@ func parseListFlags(args []string, allowed map[string]bool) (map[string]json.Raw
 			n, err := strconv.Atoi(args[i+1])
 			if err != nil || n < 0 {
 				return nil, fmt.Errorf("Flag %s requires a non-negative integer, got %q", arg, args[i+1])
+			}
+			if arg == "--limit" && n == 0 {
+				return nil, fmt.Errorf("Flag --limit must be at least 1; omit it entirely to return everything")
 			}
 			payload[strings.TrimPrefix(arg, "--")] = json.RawMessage(strconv.Itoa(n))
 			i += 2

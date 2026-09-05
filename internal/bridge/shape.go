@@ -32,8 +32,11 @@ var compactTaskFields = []string{
 // contents — list_tasks with projectId does that, and does it filtered.
 var compactProjectFields = []string{"id", "title", "isArchived"}
 
-// compactTagFields: a tag is an id and a name.
-var compactTagFields = []string{"id", "title", "taskIds"}
+// compactTagFields: a tag is an id and a name. taskIds is excluded for the same
+// reason as on a project — it is the bulk of the payload, and the TODAY tag
+// carries an entry per planned task. A caller listing tags is choosing between
+// them; list_tasks with tagId enumerates one, filtered.
+var compactTagFields = []string{"id", "title"}
 
 // listOptions are applied by the bridge after SP responds. They are never sent
 // upstream, which is why they are stripped from the payload during validation.

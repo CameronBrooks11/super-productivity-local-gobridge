@@ -63,37 +63,6 @@ func TestParseDurationMs_ErrorIsActionable(t *testing.T) {
 	}
 }
 
-func TestFormatDurationMs(t *testing.T) {
-	cases := map[int64]string{
-		0:       "0",
-		5400000: "1h30m",
-		3600000: "1h",
-		1800000: "30m",
-		45000:   "45s",
-	}
-	for ms, want := range cases {
-		if got := formatDurationMs(ms); got != want {
-			t.Errorf("formatDurationMs(%d) = %q, want %q", ms, got, want)
-		}
-	}
-}
-
-// Anything formatDurationMs prints must parse back to the same value, so a
-// displayed duration can be pasted into a command.
-func TestDurationRoundTrip(t *testing.T) {
-	for _, ms := range []int64{0, 45000, 1800000, 3600000, 5400000, 172800000} {
-		s := formatDurationMs(ms)
-		back, err := parseDurationMs(s)
-		if err != nil {
-			t.Errorf("formatDurationMs(%d) = %q, which does not parse: %v", ms, s, err)
-			continue
-		}
-		if back != ms {
-			t.Errorf("round trip of %d via %q gave %d", ms, s, back)
-		}
-	}
-}
-
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (func() bool {
 		for i := 0; i+len(sub) <= len(s); i++ {
@@ -103,4 +72,24 @@ func contains(s, sub string) bool {
 		}
 		return false
 	})()
+}
+
+// Days expand to hours, and a large day count used to render in exponent
+// notation that ParseDuration cannot read — so a well-formed value was
+// reported as bad syntax, sending the reader to fix something already correct.
+func TestParseDurationMs_LargeDayCounts(t *testing.T) {
+	for _, in := range []string{"100d", "1000d", "10000d"} {
+		if _, err := parseDurationMs(in); err != nil {
+			t.Errorf("parseDurationMs(%q) should succeed, got: %v", in, err)
+		}
+	}
+	// Past time.Duration's int64-nanosecond range the value is well-formed but
+	// out of range, and the error should say so rather than blaming syntax.
+	_, err := parseDurationMs("1000000d")
+	if err == nil {
+		t.Fatal("expected an error for an out-of-range duration")
+	}
+	if !contains(err.Error(), "too large") {
+		t.Errorf("error should say the value is out of range, got: %v", err)
+	}
 }

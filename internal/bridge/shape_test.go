@@ -139,9 +139,19 @@ func TestShapeList_KeepsNonEntityItems(t *testing.T) {
 func TestCompactFieldSets(t *testing.T) {
 	// taskIds is the bulk of a project payload and a caller listing projects is
 	// choosing between them, not enumerating contents.
-	for _, f := range compactProjectFields {
-		if f == "taskIds" || f == "backlogTaskIds" {
-			t.Errorf("compact project output should not carry %q", f)
+	// taskIds is the bulk of a project or tag payload, and a caller listing them
+	// is choosing between them rather than enumerating contents.
+	for _, set := range []struct {
+		name   string
+		fields []string
+	}{
+		{"project", compactProjectFields},
+		{"tag", compactTagFields},
+	} {
+		for _, f := range set.fields {
+			if f == "taskIds" || f == "backlogTaskIds" {
+				t.Errorf("compact %s output should not carry %q", set.name, f)
+			}
 		}
 	}
 	if len(compactTagFields) == 0 || compactTagFields[0] != "id" {
@@ -171,7 +181,11 @@ func TestValidateListOptions(t *testing.T) {
 		{"offset", map[string]string{"offset": "5"}, listOptions{offset: 5}, false},
 		{"full true", map[string]string{"full": "true"}, listOptions{full: true}, false},
 		{"full false", map[string]string{"full": "false"}, listOptions{}, false},
-		{"zero limit means no limit", map[string]string{"limit": "0"}, listOptions{}, false},
+		// Zero used to mean "no limit", so a caller computing limit = remaining,
+		// or a host defaulting an integer field, asked for nothing and got the
+		// whole store.
+		{"zero limit is rejected", map[string]string{"limit": "0"}, listOptions{}, true},
+		{"zero offset is fine", map[string]string{"offset": "0"}, listOptions{}, false},
 		{"negative limit", map[string]string{"limit": "-1"}, listOptions{}, true},
 		{"limit as string", map[string]string{"limit": `"20"`}, listOptions{}, true},
 		{"limit as float", map[string]string{"limit": "1.5"}, listOptions{}, true},

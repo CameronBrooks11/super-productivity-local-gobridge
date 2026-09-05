@@ -68,30 +68,20 @@ func expandDays(s string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("not a duration: use milliseconds (5400000) or a unit suffix (1h30m, 90m, 2d)")
 	}
+	// %g switches to exponent notation for large values, which ParseDuration
+	// cannot read — so a well-formed "1000000d" was reported as malformed
+	// syntax, sending the reader to fix the wrong thing.
+	// time.Duration is int64 nanoseconds, so it tops out around 292 years. A
+	// value past that is well-formed but out of range, and saying "not a
+	// duration" would send the reader to fix syntax that is already correct.
+	const maxHours = 2562047.0
+	if days*24 > maxHours {
+		return "", fmt.Errorf("duration is too large: the maximum is about %d days", int(maxHours)/24)
+	}
+	hours := strconv.FormatFloat(days*24, 'f', -1, 64)
 	rest := s[i+1:]
 	if rest == "" {
-		return fmt.Sprintf("%gh", days*24), nil
+		return hours + "h", nil
 	}
-	return fmt.Sprintf("%gh%s", days*24, rest), nil
-}
-
-// formatDurationMs renders milliseconds the way the flags accept them, so a
-// value read back can be pasted straight into a command.
-func formatDurationMs(ms int64) string {
-	if ms == 0 {
-		return "0"
-	}
-	d := time.Duration(ms) * time.Millisecond
-	h := int64(d / time.Hour)
-	m := int64(d/time.Minute) % 60
-	switch {
-	case h > 0 && m > 0:
-		return fmt.Sprintf("%dh%dm", h, m)
-	case h > 0:
-		return fmt.Sprintf("%dh", h)
-	case m > 0:
-		return fmt.Sprintf("%dm", m)
-	default:
-		return fmt.Sprintf("%ds", int64(d/time.Second))
-	}
+	return hours + "h" + rest, nil
 }

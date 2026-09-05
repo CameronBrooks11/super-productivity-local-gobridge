@@ -495,6 +495,9 @@ func validateTaskListFilters(payload map[string]json.RawMessage) (map[string]str
 	return params, nil
 }
 
+// validateQueryOnly validates the payload for project.list and tag.list: an
+// optional 'query' filter plus the bridge-side shaping options.
+//
 // validateQueryOnly validates a payload that only accepts "query" (string).
 func validateQueryOnly(payload map[string]json.RawMessage) (map[string]string, *Result) {
 	unknown := extraKeys(payload, map[string]bool{
@@ -567,6 +570,14 @@ func validateListOptions(payload map[string]json.RawMessage) (listOptions, *Resu
 			return opts, &r
 		}
 		if name == "limit" {
+			// Zero used to mean "no limit", which is the worst reading: a caller
+			// paging a list and computing limit = remaining, or a host filling
+			// an integer field with its zero default, asked for nothing and got
+			// the entire store — the blow-up this option exists to prevent.
+			if val == 0 {
+				r := Failure(ErrInvalidInput, "Filter 'limit' must be at least 1; omit it entirely to return everything")
+				return opts, &r
+			}
 			opts.limit = int(val)
 		} else {
 			opts.offset = int(val)

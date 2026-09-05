@@ -60,7 +60,14 @@ Same as create except: `parentId` is not allowed on update.
 | `projectId` | string | Filter by project |
 | `tagId` | string | Filter by tag (`TODAY` for today's tasks) |
 | `includeDone` | boolean | Include completed tasks |
+| `limit` | integer ≥ 1 | Return at most this many items. Omit to return everything |
+| `offset` | integer ≥ 0 | Skip this many items before applying `limit` |
+| `full` | boolean | Return whole entities instead of the compact field set |
 | `source` | `active` \| `archived` \| `all` | Task pool (default: `active`) |
+
+`limit`, `offset` and `full` apply to `list_projects` and `list_tags` too, and
+are applied by the bridge — Super Productivity ignores them. See
+[Response size](#response-size).
 
 ::: tip
 `source=all` expands the pool to include archived tasks but does **not** automatically show completed tasks.

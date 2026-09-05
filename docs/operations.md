@@ -252,3 +252,36 @@ usually intact.
 from the same in-memory state, so a backup taken during an inconsistency
 captures it, and restoring one can turn a recoverable glitch into real data
 loss.
+
+## Archiving and existence
+
+`archive_task` / `tasks archive` checks that the task is in the active list
+before archiving it, and returns `TASK_NOT_FOUND` when it is not:
+
+```console
+$ sp-local-bridge tasks archive GHOST_ID
+Error [TASK_NOT_FOUND]: Task not found in the active list; nothing was archived. An already-archived task reports this too.
+$ echo $?
+1
+```
+
+This is a bridge-side guard. Super Productivity's own endpoint answers
+`{"ok":true,"archived":true}` for ids that never existed, unlike `get`,
+`update`, `start` and `restore`, which all return `TASK_NOT_FOUND`:
+
+```console
+$ curl -s -X POST http://127.0.0.1:3876/tasks/GHOST_ID/archive
+{"ok":true,"data":{"id":"GHOST_ID","archived":true}}
+```
+
+The guard matters most for automation. An agent that invents a plausible-looking
+id would otherwise get a confident success and report a task archived when
+nothing happened — the one operation where a mistaken id produced no signal to
+correct.
+
+Note that an **already-archived** task also reports `TASK_NOT_FOUND`, since it
+is no longer in the active list. Use `--source archived --include-done` to
+confirm whether it is already there before treating that as a failure.
+
+A transport failure is never recast as a missing task: if Super Productivity is
+unreachable, the error is `SP_UNAVAILABLE`.

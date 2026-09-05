@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -436,5 +437,115 @@ func TestService_BridgeHealth_OK(t *testing.T) {
 	}
 	if data["status"] == nil {
 		t.Fatal("expected status key")
+	}
+}
+
+// --- task.archive existence check (#27) ---
+//
+// SP's archive route answers {"ok":true,"archived":true} for ids that never
+// existed, while get/update/start/restore all return TASK_NOT_FOUND. Agents
+// invent plausible-looking ids, so this was the one operation where an invented
+// one produced a confident success and the model had no signal to self-correct.
+
+// archiveServer records which paths were hit, so a test can assert that the
+// archive POST was never sent.
+func archiveServer(t *testing.T, taskExists bool) (*httptest.Server, *Client, *[]string) {
+	t.Helper()
+	var hits []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits = append(hits, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/tasks/t1":
+			if !taskExists {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Write([]byte(`{"ok":true,"data":{"id":"t1","title":"t1"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/tasks/t1/archive":
+			// What SP does even for ids that do not exist.
+			w.Write([]byte(`{"ok":true,"data":{"id":"t1","archived":true}}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(ts.Close)
+	return ts, NewClient(ts.URL), &hits
+}
+
+func archive(t *testing.T, client *Client, id string) Result {
+	t.Helper()
+	return NewService(client).Execute(context.Background(), Request{
+		Operation: OpTaskArchive,
+		Payload:   map[string]json.RawMessage{"id": json.RawMessage(`"` + id + `"`)},
+	})
+}
+
+func TestService_TaskArchive_MissingTaskReportsNotFound(t *testing.T) {
+	_, client, hits := archiveServer(t, false)
+	result := archive(t, client, "t1")
+	if result.OK {
+		t.Fatal("archiving a task that does not exist must not report success")
+	}
+	if result.Error.Code != ErrTaskNotFound {
+		t.Fatalf("expected %s, got %s", ErrTaskNotFound, result.Error.Code)
+	}
+	// The message must say nothing was archived; "Resource not found." left the
+	// caller guessing whether anything had happened.
+	if !strings.Contains(result.Error.Message, "nothing was archived") {
+		t.Fatalf("message should say nothing happened, got: %s", result.Error.Message)
+	}
+	for _, hit := range *hits {
+		if strings.Contains(hit, "/archive") {
+			t.Fatalf("the archive POST must not be sent for a missing task, hits: %v", *hits)
+		}
+	}
+}
+
+func TestService_TaskArchive_ExistingTaskStillArchives(t *testing.T) {
+	_, client, hits := archiveServer(t, true)
+	result := archive(t, client, "t1")
+	if !result.OK {
+		t.Fatalf("archiving an existing task must still work, got %+v", result.Error)
+	}
+	var sawArchive bool
+	for _, hit := range *hits {
+		if hit == "POST /tasks/t1/archive" {
+			sawArchive = true
+		}
+	}
+	if !sawArchive {
+		t.Fatalf("expected the archive POST, hits: %v", *hits)
+	}
+}
+
+// A transport failure is not a missing task. Recasting it would tell the user
+// their task does not exist when SP is simply down.
+func TestService_TaskArchive_TransportErrorIsNotRecast(t *testing.T) {
+	client := NewClient("http://127.0.0.1:1") // nothing listening
+	result := archive(t, client, "t1")
+	if result.OK {
+		t.Fatal("expected failure")
+	}
+	if result.Error.Code == ErrTaskNotFound {
+		t.Fatalf("an unreachable SP must not be reported as a missing task, got %s", result.Error.Code)
+	}
+	if result.Error.Code != ErrSPUnavailable {
+		t.Fatalf("expected %s, got %s", ErrSPUnavailable, result.Error.Code)
+	}
+}
+
+// The guard must not weaken the existing payload validation.
+func TestService_TaskArchive_RejectsExtraFields(t *testing.T) {
+	client := NewClient("http://127.0.0.1:1")
+	result := NewService(client).Execute(context.Background(), Request{
+		Operation: OpTaskArchive,
+		Payload: map[string]json.RawMessage{
+			"id":    json.RawMessage(`"t1"`),
+			"title": json.RawMessage(`"nope"`),
+		},
+	})
+	if result.OK || result.Error.Code != ErrInvalidInput {
+		t.Fatalf("expected %s, got %+v", ErrInvalidInput, result.Error)
 	}
 }

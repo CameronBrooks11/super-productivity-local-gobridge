@@ -218,6 +218,29 @@ func handleTaskArchive(ctx context.Context, client *Client, payload map[string]j
 	if r != nil {
 		return *r
 	}
+
+	// SP's archive route answers {"ok":true,"archived":true} for ids that never
+	// existed, unlike get, update, start and restore, which all return
+	// TASK_NOT_FOUND. Reporting success for a task that is not there is worse
+	// than a wrong exit code here: agents invent plausible-looking ids, and this
+	// is the one operation where an invented one produces a confident success,
+	// leaving the model no signal to correct itself.
+	//
+	// The check is a plain read-before-write. Its TOCTOU window does not matter:
+	// if the task disappears in between, the archive is a no-op either way.
+	if existing := client.GetTask(ctx, id); !existing.OK {
+		if existing.Error != nil && existing.Error.Code == ErrTaskNotFound {
+			// Restate it in terms of what was attempted. The client's generic
+			// "Resource not found." leaves the caller guessing whether the task
+			// or the route was missing, and whether anything happened.
+			return Failure(ErrTaskNotFound,
+				"Task not found in the active list; nothing was archived. "+
+					"An already-archived task reports this too.")
+		}
+		// Anything else — SP unreachable, a timeout — passes through unchanged
+		// rather than being recast as a missing task.
+		return existing
+	}
 	return client.ArchiveTask(ctx, id)
 }
 

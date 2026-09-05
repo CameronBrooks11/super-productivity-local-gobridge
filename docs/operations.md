@@ -109,7 +109,7 @@ liveness check perfectly.
 
 `doctor --deep` additionally cross-references task entities against the indexes
 that point at them (`project.taskIds`, `project.backlogTaskIds`, `tag.taskIds`,
-`task.subTaskIds`) and reports two conditions:
+`task.subTaskIds`) and reports three conditions:
 
 | Condition | Meaning |
 |---|---|
@@ -139,10 +139,13 @@ $ sp-local-bridge doctor --json
   "activeTasks": 277,
   "archivedTasks": 17,
   "clean": true,
+  "clean": true,
   "dangling": [],
   "duplicated": [],
   "orphaned": [],
-  "referenced": 277
+  "referenced": 277,
+  "transient": 0,
+  "unconfirmed": false
 }
 ```
 
@@ -168,6 +171,21 @@ warning it prints tells the user not to restore a backup.
 
 3 is distinct on purpose: it separates "cannot reach SP" from "SP answered, and
 its data is broken", which need different responses.
+
+### Anomalies are confirmed before being reported
+
+The four requests are not an atomic snapshot of a live app. Adding a task in the
+UI between the task pull and the project pull would leave the new id in
+`project.taskIds` but not in the task set, which looks exactly like a dangling
+reference; deleting a project in that window makes its tasks look orphaned.
+
+So when the first pass finds anomalies, the check runs again and reports only
+those present in **both** passes. A genuine inconsistency persists; a race does
+not. `transient` counts the first-pass anomalies that were discarded, and a
+non-zero value simply means the store was being edited while the check ran.
+
+`unconfirmed` is set when the second pass could not be run, meaning the reported
+anomalies were seen only once.
 
 ### If it warns
 

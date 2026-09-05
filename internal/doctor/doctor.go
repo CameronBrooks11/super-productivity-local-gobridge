@@ -48,11 +48,6 @@ func Run(args []string) int {
 			return 2
 		}
 	}
-	// --json prints only the integrity report, so it implies --deep.
-	if asJSON {
-		deep = true
-	}
-
 	baseURL := bridge.DefaultBaseURL
 	if env := os.Getenv("SP_BASE_URL"); env != "" {
 		baseURL = env
@@ -62,7 +57,7 @@ func Run(args []string) int {
 		client := bridge.NewClientWithTimeout(baseURL, deepTimeout)
 		ctx, cancel := context.WithTimeout(context.Background(), deepTimeout)
 		defer cancel()
-		report, err := CheckIntegrity(ctx, client)
+		report, err := CheckIntegrityConfirmed(ctx, client)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 			return 1
@@ -177,7 +172,7 @@ func Run(args []string) int {
 		deepClient := bridge.NewClientWithTimeout(baseURL, deepTimeout)
 		deepCtx, deepCancel := context.WithTimeout(context.Background(), deepTimeout)
 		defer deepCancel()
-		report, err := CheckIntegrity(deepCtx, deepClient)
+		report, err := CheckIntegrityConfirmed(deepCtx, deepClient)
 		if err != nil {
 			fmt.Printf("FAILED: %s\n", err)
 			failures++
@@ -225,7 +220,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "Options:")
 	fmt.Fprintln(w, "  --deep    Also cross-check task entities against project/tag indexes.")
 	fmt.Fprintln(w, "            Pulls the whole store, so it is slower than the default run.")
-	fmt.Fprintln(w, "  --json    Print only the integrity report as JSON (implies --deep).")
+	fmt.Fprintln(w, "  --json    Print only the integrity report as JSON (runs the deep check).")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Exit codes: 0 ok, 1 a check failed, 2 bad usage, 3 store inconsistent.")
 }

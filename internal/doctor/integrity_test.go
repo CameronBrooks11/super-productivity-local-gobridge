@@ -382,3 +382,156 @@ func TestUsage_WritesToProvidedWriter(t *testing.T) {
 		t.Fatalf("usage should describe --deep, got: %s", buf.String())
 	}
 }
+
+// --- Confirmation pass ---
+//
+// The four pulls are not an atomic snapshot. A task added in the UI between the
+// task pull and the project pull looks exactly like a dangling reference, and
+// that false verdict tells the user not to restore a backup. A real
+// inconsistency survives a second pass; a race does not.
+
+// racingServer reports an extra project reference on the first round only,
+// simulating a task added mid-check.
+func racingServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	round := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		enc := func(v any) { json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": v}) }
+		switch {
+		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
+			enc([]map[string]any{})
+		case r.URL.Path == "/tasks":
+			enc([]map[string]any{task("t1")})
+		case r.URL.Path == "/projects":
+			round++
+			if round == 1 {
+				enc([]map[string]any{withIDs("taskIds", "t1", "RACE")}) // transient
+				return
+			}
+			enc([]map[string]any{withIDs("taskIds", "t1")})
+		default:
+			enc([]map[string]any{})
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestConfirmed_TransientAnomalyIsDropped(t *testing.T) {
+	srv := racingServer(t)
+	r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !r.Clean() {
+		t.Fatalf("a transient anomaly must not be reported: %+v", r)
+	}
+	if r.Transient != 1 {
+		t.Fatalf("expected 1 transient anomaly recorded, got %d", r.Transient)
+	}
+}
+
+func TestConfirmed_PersistentAnomalyIsKept(t *testing.T) {
+	srv := newStoreServer(t, storeFixture{
+		active:   []map[string]any{task("t1")},
+		projects: []map[string]any{withIDs("taskIds", "t1", "GHOST")},
+	})
+	defer srv.Close()
+	r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(r.Dangling) != 1 || r.Dangling[0] != "GHOST" {
+		t.Fatalf("a persistent anomaly must survive confirmation, got %v", r.Dangling)
+	}
+	if r.Transient != 0 {
+		t.Fatalf("nothing was transient here, got %d", r.Transient)
+	}
+}
+
+func TestConfirmed_CleanStoreSkipsSecondPass(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/projects" {
+			calls++
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/projects" {
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{withIDs("taskIds", "t1")}})
+			return
+		}
+		if r.URL.Path == "/tasks" && r.URL.Query().Get("source") != "archived" {
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{task("t1")}})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+	}))
+	defer srv.Close()
+	if _, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("a clean store must not pay for a second pass, got %d /projects calls", calls)
+	}
+}
+
+func TestIntersect(t *testing.T) {
+	if got := intersect([]string{"a", "b", "c"}, []string{"b", "c", "d"}); len(got) != 2 || got[0] != "b" || got[1] != "c" {
+		t.Fatalf("got %v", got)
+	}
+	if got := intersect(nil, []string{"a"}); got != nil {
+		t.Fatalf("empty input must yield nil, got %v", got)
+	}
+}
+
+// Silently dropping a malformed element reaches the same wrong answer the
+// null-payload guard exists to prevent, via a different door.
+func TestIntegrity_MalformedElementIsAnError(t *testing.T) {
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/tasks" && r.URL.Query().Get("source") != "archived" {
+			w.Write([]byte(`{"ok":true,"data":[{"id":"t1"},null,{"id":"t2"}]}`))
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+	})
+	_, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err == nil {
+		t.Fatal("a null array element must be an error, not a silently dropped task")
+	}
+	if !strings.Contains(err.Error(), "usable id") {
+		t.Fatalf("error should explain the cause, got: %v", err)
+	}
+}
+
+func TestIntegrity_TaskWithoutIDIsAnError(t *testing.T) {
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/tasks" && r.URL.Query().Get("source") != "archived" {
+			w.Write([]byte(`{"ok":true,"data":[{"id":"t1"},{"title":"no id"}]}`))
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+	})
+	if _, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL)); err == nil {
+		t.Fatal("a task without an id must be an error")
+	}
+}
+
+// The documented JSON contract must actually contain every documented key.
+func TestIntegrityJSON_ContainsDocumentedKeys(t *testing.T) {
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(integrityJSON(IntegrityReport{})), &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	for _, key := range []string{
+		"activeTasks", "archivedTasks", "referenced",
+		"dangling", "orphaned", "duplicated",
+		"transient", "unconfirmed", "clean",
+	} {
+		if _, ok := parsed[key]; !ok {
+			t.Errorf("documented key %q missing from --json output", key)
+		}
+	}
+}

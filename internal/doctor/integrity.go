@@ -23,6 +23,12 @@ type IntegrityReport struct {
 	Dangling      []string // referenced by an index, no task entity exists
 	Orphaned      []string // active task that no index references
 	Duplicated    []string // present in both the active and archived pools
+
+	// Transient counts anomalies from the first pass that did not survive
+	// confirmation — the signature of the store changing mid-check.
+	Transient int
+	// Unconfirmed marks a report whose confirmation pass could not be run.
+	Unconfirmed bool
 }
 
 // Clean reports whether the store is self-consistent.
@@ -64,10 +70,24 @@ func objectsOrError(data any, endpoint string) ([]map[string]any, error) {
 		return nil, fmt.Errorf("%s returned no usable list (got %T); cannot judge integrity", endpoint, data)
 	}
 	out := make([]map[string]any, 0, len(arr))
+	skipped := 0
 	for _, item := range arr {
-		if obj, ok := item.(map[string]any); ok {
-			out = append(out, obj)
+		obj, ok := item.(map[string]any)
+		if !ok {
+			skipped++
+			continue
 		}
+		if _, hasID := idField(obj, "id"); !hasID {
+			skipped++
+			continue
+		}
+		out = append(out, obj)
+	}
+	if skipped > 0 {
+		// Dropping these silently reaches the same wrong answer this function
+		// exists to prevent: an entity we failed to parse is absent from the
+		// known set, so every reference to it is reported as dangling.
+		return nil, fmt.Errorf("%s returned %d entr(ies) without a usable id; cannot judge integrity", endpoint, skipped)
 	}
 	return out, nil
 }
@@ -179,6 +199,59 @@ func CheckIntegrity(ctx context.Context, client *bridge.Client) (IntegrityReport
 	return report, nil
 }
 
+// intersect returns the ids present in both slices, preserving sorted order.
+func intersect(a, b []string) []string {
+	if len(a) == 0 || len(b) == 0 {
+		return nil
+	}
+	in := make(map[string]struct{}, len(b))
+	for _, id := range b {
+		in[id] = struct{}{}
+	}
+	var out []string
+	for _, id := range a {
+		if _, ok := in[id]; ok {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// CheckIntegrityConfirmed runs the check and, when it finds anomalies, repeats
+// it and keeps only those that appear in both passes.
+//
+// The four pulls are not an atomic snapshot of a live app. A task added in the
+// UI between the task pull and the project pull lands in project.taskIds but
+// not in the task set, and would be reported as dangling; deleting a project in
+// that same window leaves its tasks unreferenced and looking orphaned. Both are
+// normal use, and both would otherwise print "the store is inconsistent" along
+// with advice not to restore a backup.
+//
+// A genuine inconsistency persists across passes; a race does not.
+func CheckIntegrityConfirmed(ctx context.Context, client *bridge.Client) (IntegrityReport, error) {
+	first, err := CheckIntegrity(ctx, client)
+	if err != nil || first.Clean() {
+		return first, err
+	}
+
+	second, err := CheckIntegrity(ctx, client)
+	if err != nil {
+		// The confirmation pull failed; report the first pass rather than
+		// claiming a verdict we could not confirm.
+		first.Unconfirmed = true
+		return first, nil
+	}
+
+	confirmed := second
+	confirmed.Dangling = intersect(first.Dangling, second.Dangling)
+	confirmed.Orphaned = intersect(first.Orphaned, second.Orphaned)
+	confirmed.Duplicated = intersect(first.Duplicated, second.Duplicated)
+	confirmed.Transient = (len(first.Dangling) - len(confirmed.Dangling)) +
+		(len(first.Orphaned) - len(confirmed.Orphaned)) +
+		(len(first.Duplicated) - len(confirmed.Duplicated))
+	return confirmed, nil
+}
+
 // sample renders at most n ids for display, so a store with hundreds of broken
 // references does not flood the terminal.
 func sample(ids []string, n int) string {
@@ -192,6 +265,9 @@ func sample(ids []string, n int) string {
 func printIntegrity(report IntegrityReport) bool {
 	if report.Clean() {
 		fmt.Println("OK")
+		if report.Transient > 0 {
+			fmt.Printf("  (store changed during the check; %d transient anomal(ies) ignored)\n", report.Transient)
+		}
 		fmt.Printf("  active tasks        : %d\n", report.ActiveTasks)
 		fmt.Printf("  archived tasks      : %d\n", report.ArchivedTasks)
 		fmt.Printf("  referenced by index : %d\n", report.Referenced)
@@ -215,6 +291,12 @@ func printIntegrity(report IntegrityReport) bool {
 		fmt.Println("    Tasks listed as both active and archived; an archive or restore")
 		fmt.Println("    was only partially applied.")
 	}
+	if report.Transient > 0 {
+		fmt.Printf("  (%d anomal(ies) from the first pass did not recur and were ignored)\n", report.Transient)
+	}
+	if report.Unconfirmed {
+		fmt.Println("  NOTE: the confirmation pass could not run, so these are unconfirmed.")
+	}
 	fmt.Println()
 	fmt.Println("  The store is inconsistent. Restart Super Productivity and re-run.")
 	fmt.Println("  Do NOT import a backup taken while this warning is showing — backups are")
@@ -224,23 +306,24 @@ func printIntegrity(report IntegrityReport) bool {
 
 // integrityJSON renders the report as JSON for scripting.
 func integrityJSON(report IntegrityReport) string {
+	// Empty id lists must render as [] rather than null, so consumers can index
+	// them without a nil check.
+	ids := func(v []string) []string {
+		if v == nil {
+			return []string{}
+		}
+		return v
+	}
 	payload := map[string]any{
 		"activeTasks":   report.ActiveTasks,
 		"archivedTasks": report.ArchivedTasks,
 		"referenced":    report.Referenced,
-		"dangling":      report.Dangling,
-		"orphaned":      report.Orphaned,
+		"dangling":      ids(report.Dangling),
+		"orphaned":      ids(report.Orphaned),
+		"duplicated":    ids(report.Duplicated),
+		"transient":     report.Transient,
+		"unconfirmed":   report.Unconfirmed,
 		"clean":         report.Clean(),
-	}
-	if report.Dangling == nil {
-		payload["dangling"] = []string{}
-	}
-	if report.Orphaned == nil {
-		payload["orphaned"] = []string{}
-	}
-	payload["duplicated"] = report.Duplicated
-	if report.Duplicated == nil {
-		payload["duplicated"] = []string{}
 	}
 	out, _ := json.MarshalIndent(payload, "", "  ")
 	return string(out)

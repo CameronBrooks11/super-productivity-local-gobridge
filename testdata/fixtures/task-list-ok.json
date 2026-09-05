@@ -5,9 +5,13 @@
     "isDone": false,
     "projectId": "project-1",
     "tagIds": ["tag-urgent"],
-    "parentId": null,
+    "subTaskIds": [],
+    "timeSpent": 900000,
+    "timeEstimate": 1800000,
+    "timeSpentOnDay": { "2026-06-01": 900000 },
+    "created": 1780000000000,
+    "attachments": [],
     "notes": "Check Q2 actuals",
-    "plannedAt": null,
     "dueDay": "2026-06-01"
   },
   {
@@ -16,9 +20,13 @@
     "isDone": true,
     "projectId": "project-1",
     "tagIds": [],
-    "parentId": null,
-    "notes": "",
-    "plannedAt": null,
-    "dueDay": null
+    "subTaskIds": [],
+    "timeSpent": 0,
+    "timeEstimate": 0,
+    "timeSpentOnDay": {},
+    "created": 1780000100000,
+    "attachments": [],
+    "doneOn": 1780000200000,
+    "modified": 1780000200000
   }
 ]

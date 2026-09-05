@@ -1,12 +1,22 @@
 [
   {
     "id": "tag-urgent",
-    "name": "urgent",
-    "color": "#e53935"
+    "title": "urgent",
+    "taskIds": ["task-abc123"],
+    "color": "#e53935",
+    "icon": null,
+    "created": 1770000000000,
+    "theme": { "primary": "#e53935" },
+    "advancedCfg": {}
   },
   {
     "id": "tag-dev",
-    "name": "dev",
-    "color": "#1e88e5"
+    "title": "dev",
+    "taskIds": [],
+    "color": "#1e88e5",
+    "icon": null,
+    "created": 1770000100000,
+    "theme": { "primary": "#1e88e5" },
+    "advancedCfg": {}
   }
 ]

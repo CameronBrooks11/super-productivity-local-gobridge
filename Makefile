@@ -1,4 +1,4 @@
-.PHONY: build test lint fmt fmt-check vet check race clean install docs snapshot
+.PHONY: build test test-live lint fmt fmt-check vet check race clean install docs snapshot
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -15,6 +15,16 @@ build:
 
 test:
 	go test ./... -count=1
+
+# Verifies the client against a running Super Productivity: that the fields the
+# bridge depends on are still present with the types it expects, and that the
+# committed fixtures do not claim fields SP never returns. Excluded from `test`
+# and from CI, which has no SP to talk to. Read-only (GET) — see AGENTS.md.
+test-live:
+	@command -v curl >/dev/null 2>&1 && curl -sf http://127.0.0.1:3876/health >/dev/null 2>&1 || \
+	  { echo "Super Productivity is not reachable on 127.0.0.1:3876."; \
+	    echo "Start it and enable Settings -> Sync & Export -> Local REST API."; exit 1; }
+	go test -tags live ./... -count=1 -run TestLive -v
 
 test-cover:
 	go test ./... -count=1 -coverprofile=coverage.out

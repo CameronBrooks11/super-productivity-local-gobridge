@@ -347,3 +347,35 @@ the reports in the project's issue tracker.
 
 A transport failure is never recast as a missing task: if Super Productivity is
 unreachable, the error is `SP_UNAVAILABLE`.
+
+## Verifying against a live Super Productivity
+
+The offline suite replays committed fixtures, so it cannot notice if Super
+Productivity changes what it returns — or if a fixture describes a response SP
+never sends. Both have happened.
+
+```bash
+make test-live
+```
+
+This runs a build-tagged suite (`//go:build live`) against a running SP and
+checks two things:
+
+- **The fields the bridge depends on** are present with the types it expects —
+  `task.subTaskIds`, `project.taskIds`, `tag.title`, and the rest. A required
+  field missing from even one object fails, because the code reads it without
+  checking.
+- **The committed fixtures do not invent fields.** Every field a fixture claims
+  must exist in a real response with a matching type. Fixtures may be smaller
+  than reality; they may not be fiction.
+
+It also asserts that a missing task and a missing route still report different
+codes, since the `archive` existence guard depends on telling them apart.
+
+Every request is a `GET`. The suite is excluded from `go test ./...` and from
+CI, which has no Super Productivity to reach and could not start one — the API
+port is a hardcoded 3876.
+
+There is no `--update` mode. Fixtures are committed to a public repository and
+live responses carry real task titles, project names and notes, so fixtures are
+written by hand from the shapes the failure messages report.

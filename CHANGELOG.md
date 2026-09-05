@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `make test-live`, a build-tagged suite that checks the client against a running
+  Super Productivity: that every field the bridge depends on is still present
+  with the expected type, that a missing task and a missing route still report
+  different codes, and that no committed fixture claims a field SP never
+  returns. Excluded from `go test ./...` and from CI, which has no SP to reach.
+  Read-only (#30)
+
 - `doctor --deep` cross-references task entities against the project and tag
   indexes that point at them, reporting dangling references and orphaned active
   tasks. `--json` prints only that report. Exit code 3 distinguishes "SP
@@ -29,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   table `configure` writes from instead of a private copy
 
 ### Fixed
+
+- Corrected fixtures that described responses Super Productivity does not send:
+  the tag fixture used `name` where SP sends `title`, the health fixture
+  invented a `status` field that a test then asserted (so both were wrong
+  together and the suite stayed green), the status fixture invented
+  `currentProject`, and task fixtures carried a `plannedAt` that never appears
+  in a response (#30)
 
 - Every HTTP 404 was reported as `TASK_NOT_FOUND`. The client short-circuited on
   the status before reading the body, discarding the distinction Super

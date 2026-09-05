@@ -37,6 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   found", and `archive`'s existence guard could not tell an absent task from an
   absent probe route. SP's own code and message now pass through; a 404 with an
   empty or non-JSON body reports `SP_ERROR` rather than guessing (#37)
+- An HTTP error status carrying `{"ok":true}` is reported as an error rather
+  than a success. Believing the body over the status turned a failed request
+  into a successful one — and for `archive`, whose guard reads a task to decide
+  whether it exists, a 404 would have been read as "it exists" and the archive
+  attempted anyway
 
 - `archive_task` / `tasks archive` verifies the task exists before archiving and
   returns `TASK_NOT_FOUND` otherwise. Super Productivity's archive endpoint

@@ -151,6 +151,16 @@ func (c *Client) translateResponse(resp *http.Response) Result {
 
 func (c *Client) translateEnvelope(obj map[string]any, statusCode int) Result {
 	okVal, _ := obj["ok"].(bool)
+	if okVal && (statusCode < 200 || statusCode >= 300) {
+		// An HTTP error status carrying ok:true is contradictory, and trusting
+		// the body would report a failed request as a success. That matters
+		// beyond tidiness: task.archive reads a task to decide whether it exists
+		// before writing, and treating a 404 as "it exists" would send the very
+		// call that crashed SP's renderer. Believe the status.
+		return Failure(ErrSPError,
+			fmt.Sprintf("SP returned status %d with a success envelope; treating as an error.", statusCode),
+			map[string]any{"status_code": statusCode, "body": obj})
+	}
 	if okVal {
 		data := obj["data"]
 		if data == nil {

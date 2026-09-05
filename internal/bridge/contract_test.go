@@ -25,7 +25,13 @@ var contractOperations = []string{
 	"bridge.health",
 }
 
-// contractErrorCodes defines the error codes the bridge may return.
+// contractErrorCodes defines the error codes the bridge itself produces.
+//
+// It is not a closed set for what a caller can observe: translateEnvelope
+// passes through whatever error.code SP supplies, so a future SP release could
+// surface a code not named here. That is deliberate — relabelling SP's own
+// codes would lose information — but it does mean this list documents the
+// bridge's vocabulary rather than bounding the response.
 var contractErrorCodes = []string{
 	ErrSPUnavailable,
 	ErrTimeout,

@@ -117,7 +117,22 @@ means the task is genuinely absent. Earlier versions reported every 404 as
 looking for a task that was never the problem.
 
 A 404 whose body is empty or not JSON — something a proxy might produce, but not
-SP — reports `SP_ERROR` rather than guessing which was missing.
+SP — reports `SP_ERROR` rather than guessing which was missing. An HTTP error
+status carrying `{"ok":true}` is likewise reported as an error: believing the
+body over the status would turn a failed request into a success.
+
+Codes other than the table above can appear: `translateEnvelope` passes through
+whatever `error.code` Super Productivity supplies, so a future SP release could
+introduce one the bridge does not name. Consumers should branch on the codes
+they know and treat anything else as a generic failure rather than assuming the
+set is closed.
+
+**What this means for `archive`.** Its existence guard reports `TASK_NOT_FOUND`
+only when SP's 404 body is an envelope whose `error.code` is `TASK_NOT_FOUND` —
+which is what SP 18.10.0 sends. If that body ever changes shape, the guard
+reports the underlying error instead (`SP_ERROR`, say) rather than the friendly
+message below. It still fails closed either way: the archive is not attempted
+when the read is inconclusive.
 
 ## Intentionally Excluded
 

@@ -224,6 +224,11 @@ func handleTaskArchive(ctx context.Context, client *Client, payload map[string]j
 	// all return TASK_NOT_FOUND. Passing that through reported a completed
 	// archive for a mistaken or invented id, with nothing to signal otherwise.
 	//
+	// The branch below keys on SP's own TASK_NOT_FOUND, so it depends on the
+	// 404 body shape SP 18.10.0 sends. If that changes, the underlying error
+	// surfaces instead of the friendly message — degraded, but still closed:
+	// an inconclusive read never reaches the POST.
+	//
 	// GET is the right probe: it resolves only the active pool. Verified against
 	// SP 18.10.0 — a task confirmed present in the archive returns 404
 	// TASK_NOT_FOUND from GET /tasks/:id. That is also why an already-archived
@@ -238,9 +243,9 @@ func handleTaskArchive(ctx context.Context, client *Client, payload map[string]j
 	// a fix on SP's side; the guard removes the common case, not the race.
 	if existing := client.GetTask(ctx, id); !existing.OK {
 		if existing.Error != nil && existing.Error.Code == ErrTaskNotFound {
-			// Restate it in terms of what was attempted. The client's generic
-			// "Resource not found." leaves the caller guessing whether the task
-			// or the route was missing. It does not assert that nothing was
+			// Restate it in terms of what was attempted: SP's own "Task not
+			// found" says what is missing but not what the bridge was doing, or
+			// whether anything changed. It does not assert that nothing was
 			// archived: a timed-out or cancelled archive can succeed
 			// server-side, and a retry would then land here. Forward
 			// the original details rather than asserting a status code, which

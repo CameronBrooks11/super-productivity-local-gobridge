@@ -542,8 +542,8 @@ func TestService_TaskArchive_MissingTaskReportsNotFound(t *testing.T) {
 	if result.Error.Code != ErrTaskNotFound {
 		t.Fatalf("expected %s, got %s", ErrTaskNotFound, result.Error.Code)
 	}
-	// The message must say why; the client's generic "Resource not found." left
-	// the caller guessing whether the task or the route was missing.
+	// The message must say why: SP's own "Task not found" says what is missing
+	// but not what the bridge was doing, or whether anything changed.
 	if !strings.Contains(result.Error.Message, "not in the active list") {
 		t.Fatalf("message should say why, got: %s", result.Error.Message)
 	}
@@ -689,11 +689,64 @@ func TestService_TaskArchive_RouteNotFoundIsNotReportedAsMissingTask(t *testing.
 	}
 }
 
-// A task-level 404 still reaches the guard, which is what makes it work at all.
-func TestService_TaskArchive_TaskNotFoundStillDetected(t *testing.T) {
-	client, _ := archiveServer(t, false)
-	result := archive(t, client, "t1")
-	if result.Error.Code != ErrTaskNotFound {
-		t.Fatalf("expected %s, got %s", ErrTaskNotFound, result.Error.Code)
+// An HTTP error status carrying ok:true is contradictory. Believing the body
+// would report a failed request as a success — and for task.archive, which
+// reads a task to decide whether it exists before writing, that means treating
+// a 404 as "it exists" and sending the call that crashed SP's renderer.
+func TestClient_SuccessEnvelopeOnErrorStatusIsAnError(t *testing.T) {
+	for _, status := range []int{404, 400, 500} {
+		ts, client := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			w.Write([]byte(`{"ok":true,"data":{"id":"t1"}}`))
+		})
+		result := client.GetTask(context.Background(), "t1")
+		ts.Close()
+		if result.OK {
+			t.Errorf("status %d with ok:true must not be a success", status)
+			continue
+		}
+		if result.Error.Code != ErrSPError {
+			t.Errorf("status %d: expected %s, got %s", status, ErrSPError, result.Error.Code)
+		}
+		if got := result.Error.Details["status_code"]; got != status {
+			t.Errorf("status %d: details should carry the status, got %v", status, got)
+		}
+	}
+}
+
+// The guard must fail closed on a contradictory probe response: no archive POST.
+func TestService_TaskArchive_ContradictoryProbeDoesNotArchive(t *testing.T) {
+	var posted bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"ok":true,"data":{"id":"t1"}}`)) // 404 but claims success
+			return
+		}
+		posted = true
+		w.Write([]byte(`{"ok":true,"data":{"id":"t1","archived":true}}`))
+	}))
+	defer ts.Close()
+
+	result := archive(t, NewClient(ts.URL), "t1")
+	if posted {
+		t.Fatal("a contradictory existence probe must not lead to an archive POST")
+	}
+	if result.OK {
+		t.Fatal("expected failure")
+	}
+}
+
+// A 2xx carrying ok:true is the normal path and must keep working.
+func TestClient_SuccessEnvelopeOnOKStatusStillSucceeds(t *testing.T) {
+	ts, client := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true,"data":{"id":"t1","title":"t1"}}`))
+	})
+	defer ts.Close()
+	if result := client.GetTask(context.Background(), "t1"); !result.OK {
+		t.Fatalf("a 200 with ok:true must succeed, got %+v", result.Error)
 	}
 }

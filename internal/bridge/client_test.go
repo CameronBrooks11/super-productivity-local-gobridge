@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 )
 
 // Test every route path and method.
@@ -415,5 +416,20 @@ func TestClient_ArrayResponse(t *testing.T) {
 	}
 	if len(arr) != 1 {
 		t.Errorf("expected 1 task, got %d", len(arr))
+	}
+}
+
+// http.Client.Timeout caps every request independently of the context deadline,
+// so a caller needing longer than the default must be able to raise it.
+func TestNewClientWithTimeout(t *testing.T) {
+	c := NewClientWithTimeout("http://example.invalid", 45*time.Second)
+	if c.httpClient.Timeout != 45*time.Second {
+		t.Fatalf("timeout not applied: got %v", c.httpClient.Timeout)
+	}
+	if d := NewClientWithTimeout("http://example.invalid", 0); d.httpClient.Timeout != defaultTimeout {
+		t.Fatalf("non-positive timeout should fall back to default, got %v", d.httpClient.Timeout)
+	}
+	if n := NewClient("http://example.invalid"); n.httpClient.Timeout != defaultTimeout {
+		t.Fatalf("NewClient must keep the default timeout, got %v", n.httpClient.Timeout)
 	}
 }

@@ -13,9 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   indexes that point at them, reporting dangling references and orphaned active
   tasks. `--json` prints only that report. Exit code 3 distinguishes "SP
   answered but its data is inconsistent" from a failed check (#28)
-
-### Added
-
+- `bridge.NewClientWithTimeout`, so a caller needing longer than the default
+  10s per-request timeout can raise it. `http.Client.Timeout` caps every
+  request regardless of the context deadline
 - `claude-code` host target for `configure` and `print-config`, writing user
   scope in `~/.claude.json`. Claude Code is a separate host from Claude Desktop
   and was previously not configurable at all (#25)

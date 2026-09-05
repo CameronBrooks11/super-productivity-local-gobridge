@@ -18,6 +18,10 @@ import (
 	"github.com/CameronBrooks11/super-productivity-local-gobridge/internal/version"
 )
 
+// deepTimeout bounds the --deep store pull, which is far larger than any
+// request the standard checks make.
+const deepTimeout = 60 * time.Second
+
 // Run executes the doctor diagnostics. Returns exit code.
 func Run(args []string) int {
 	deep := false
@@ -31,12 +35,15 @@ func Run(args []string) int {
 		case "--help", "-h":
 			usage()
 			return 0
+		case "doctor":
+			// main.go forwards os.Args[1:], so the subcommand word arrives here.
 		default:
-			if strings.HasPrefix(arg, "-") {
-				fmt.Fprintf(os.Stderr, "Error: unknown option '%s'\n", arg)
-				usage()
-				return 2
-			}
+			// Anything else is a typo. Ignoring it silently meant `doctor deep`
+			// ran a shallow check and still printed "All checks passed", so the
+			// user believed the integrity check had run.
+			fmt.Fprintf(os.Stderr, "Error: unexpected argument '%s'\n", arg)
+			usage()
+			return 2
 		}
 	}
 	// --json prints only the integrity report, so it implies --deep.
@@ -50,8 +57,8 @@ func Run(args []string) int {
 	}
 
 	if asJSON {
-		client := bridge.NewClient(baseURL)
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		client := bridge.NewClientWithTimeout(baseURL, deepTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), deepTimeout)
 		defer cancel()
 		report, err := CheckIntegrity(ctx, client)
 		if err != nil {
@@ -60,7 +67,9 @@ func Run(args []string) int {
 		}
 		fmt.Println(integrityJSON(report))
 		if !report.Clean() {
-			return 1
+			// Same contract as the human path: 3 means SP answered and its data
+			// is broken, which a script must not confuse with a failed request.
+			return 3
 		}
 		return 0
 	}
@@ -155,9 +164,13 @@ func Run(args []string) int {
 	inconsistent := false
 	if deep && health.OK {
 		fmt.Print("Store integrity... ")
-		deepCtx, deepCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		// The archived pull with includeDone is the largest response the bridge
+		// ever requests, so it gets its own client: http.Client.Timeout caps
+		// each request independently of the context deadline.
+		deepClient := bridge.NewClientWithTimeout(baseURL, deepTimeout)
+		deepCtx, deepCancel := context.WithTimeout(context.Background(), deepTimeout)
 		defer deepCancel()
-		report, err := CheckIntegrity(deepCtx, client)
+		report, err := CheckIntegrity(deepCtx, deepClient)
 		if err != nil {
 			fmt.Printf("FAILED: %s\n", err)
 			failures++
@@ -207,7 +220,7 @@ func usage() {
 	fmt.Println("            Pulls the whole store, so it is slower than the default run.")
 	fmt.Println("  --json    Print only the integrity report as JSON (implies --deep).")
 	fmt.Println()
-	fmt.Println("Exit codes: 0 ok, 1 a check failed, 3 store inconsistent.")
+	fmt.Println("Exit codes: 0 ok, 1 a check failed, 2 bad usage, 3 store inconsistent.")
 }
 
 // checkHostConfigs returns list of host names whose config files contain our entry.

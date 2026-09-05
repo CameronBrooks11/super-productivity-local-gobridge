@@ -150,7 +150,11 @@ $ sp-local-bridge doctor --json
 |---|---|
 | 0 | All checks passed. |
 | 1 | A check failed (for example, SP is unreachable). |
+| 2 | Bad usage (unknown flag or unexpected argument). |
 | 3 | Every request succeeded, but the store is inconsistent. |
+
+`--json` follows the same table, so a script can distinguish a corrupt store
+(3) from a connection failure (1) without parsing output.
 
 3 is distinct on purpose: it separates "cannot reach SP" from "SP answered, and
 its data is broken", which need different responses.

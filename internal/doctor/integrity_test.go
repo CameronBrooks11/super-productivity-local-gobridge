@@ -192,3 +192,65 @@ func TestSample_TruncatesLongLists(t *testing.T) {
 		t.Fatalf("short list must not be truncated, got %q", full)
 	}
 }
+
+// --- Run() exit-code contract ---
+//
+// The point of a distinct code 3 is that a script can tell "cannot reach SP"
+// from "SP answered and its data is broken". --json is the documented scripting
+// mode, so it is the path where collapsing them matters most.
+
+func runWithStore(t *testing.T, f storeFixture, args ...string) int {
+	t.Helper()
+	srv := newStoreServer(t, f)
+	defer srv.Close()
+	t.Setenv("SP_BASE_URL", srv.URL)
+	return Run(args)
+}
+
+func TestRun_JSONReturnsThreeWhenStoreInconsistent(t *testing.T) {
+	code := runWithStore(t, storeFixture{
+		active:   []map[string]any{task("t1")},
+		projects: []map[string]any{withIDs("taskIds", "t1", "GHOST")},
+	}, "doctor", "--json")
+	if code != 3 {
+		t.Fatalf("inconsistent store via --json must exit 3, got %d", code)
+	}
+}
+
+func TestRun_JSONReturnsZeroWhenClean(t *testing.T) {
+	code := runWithStore(t, storeFixture{
+		active:   []map[string]any{task("t1")},
+		projects: []map[string]any{withIDs("taskIds", "t1")},
+	}, "doctor", "--json")
+	if code != 0 {
+		t.Fatalf("clean store via --json must exit 0, got %d", code)
+	}
+}
+
+func TestRun_JSONReturnsOneWhenUnreachable(t *testing.T) {
+	// Reserved-for-documentation port that nothing listens on.
+	t.Setenv("SP_BASE_URL", "http://127.0.0.1:1")
+	if code := Run([]string{"doctor", "--json"}); code != 1 {
+		t.Fatalf("unreachable SP must exit 1, not be confused with 3; got %d", code)
+	}
+}
+
+// A mistyped flag used to be swallowed, running a shallow check that then
+// reported "All checks passed" — the user believed the integrity check ran.
+func TestRun_RejectsStrayPositional(t *testing.T) {
+	if code := Run([]string{"doctor", "deep"}); code != 2 {
+		t.Fatalf("stray positional must exit 2, got %d", code)
+	}
+}
+
+func TestRun_RejectsUnknownFlag(t *testing.T) {
+	if code := Run([]string{"doctor", "--nope"}); code != 2 {
+		t.Fatalf("unknown flag must exit 2, got %d", code)
+	}
+}
+
+func TestRun_HelpExitsZero(t *testing.T) {
+	if code := Run([]string{"doctor", "--help"}); code != 0 {
+		t.Fatalf("--help must exit 0, got %d", code)
+	}
+}

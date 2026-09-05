@@ -93,3 +93,49 @@ func TestParseDurationMs_LargeDayCounts(t *testing.T) {
 		t.Errorf("error should say the value is out of range, got: %v", err)
 	}
 }
+
+// SP stores milliseconds. A sub-millisecond value truncated to 0 silently, so
+// `--time-spent 500us` wrote timeSpent: 0 and wiped the recorded time rather
+// than being rejected.
+func TestParseDurationMs_RejectsSubMillisecond(t *testing.T) {
+	for _, in := range []string{"500us", "30ns", "999us"} {
+		if got, err := parseDurationMs(in); err == nil {
+			t.Errorf("parseDurationMs(%q) = %d, want an error rather than a silent zero", in, got)
+		}
+	}
+	// A value that does round to at least a millisecond is fine.
+	if got, err := parseDurationMs("1500us"); err != nil || got != 1 {
+		t.Errorf("parseDurationMs(\"1500us\") = %d, %v; want 1, nil", got, err)
+	}
+	// An explicit zero is still a legitimate value to write.
+	if got, err := parseDurationMs("0"); err != nil || got != 0 {
+		t.Errorf("parseDurationMs(\"0\") = %d, %v; want 0, nil", got, err)
+	}
+}
+
+// A negative day count compared against a positive ceiling, so it slipped past
+// the range guard and was reported as bad syntax.
+func TestParseDurationMs_NegativeDaysReportedAsNegative(t *testing.T) {
+	for _, in := range []string{"-5", "-1h", "-1000000d", "-2d"} {
+		_, err := parseDurationMs(in)
+		if err == nil {
+			t.Errorf("parseDurationMs(%q) should fail", in)
+			continue
+		}
+		if !contains(err.Error(), "negative") {
+			t.Errorf("parseDurationMs(%q) should say the value is negative, got: %v", in, err)
+		}
+	}
+}
+
+// An out-of-range value assembled from several components is well-formed, so
+// the error must not blame syntax.
+func TestParseDurationMs_OutOfRangeMentionsRange(t *testing.T) {
+	_, err := parseDurationMs("106751d23h59m")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !contains(err.Error(), "out of range") && !contains(err.Error(), "too large") {
+		t.Errorf("error should mention the range, got: %v", err)
+	}
+}

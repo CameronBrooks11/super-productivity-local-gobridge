@@ -232,3 +232,17 @@ func TestValidateTaskListFilters_DoesNotForwardShapingOptions(t *testing.T) {
 		t.Errorf("real filters must still be forwarded, got %v", params)
 	}
 }
+
+// Fields writable through add_task/update_task must be readable back from a
+// list, or a caller cannot confirm what it wrote.
+func TestCompactTaskFields_CoverWritableScalars(t *testing.T) {
+	have := make(map[string]bool, len(compactTaskFields))
+	for _, f := range compactTaskFields {
+		have[f] = true
+	}
+	for _, f := range []string{"dueDay", "dueWithTime", "plannedAt", "notes", "timeEstimate", "timeSpent"} {
+		if !have[f] {
+			t.Errorf("%q is settable through the API but is projected away from list responses", f)
+		}
+	}
+}

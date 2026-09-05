@@ -273,7 +273,7 @@ func (s *Server) registerTools() {
 			"type": "object",
 			"properties": map[string]any{
 				"query":  map[string]any{"type": "string", "description": "Filter by name substring."},
-				"limit":  map[string]any{"type": "integer", "minimum": 0, "description": "Return at most this many items. Strongly preferred: an unfiltered list of a real store is tens of thousands of tokens. Ask for what you need — 20 is usually plenty — and narrow with the filters rather than reading everything. Omit only when you genuinely need every item."},
+				"limit":  map[string]any{"type": "integer", "minimum": 1, "description": "Return at most this many items. Strongly preferred: an unfiltered list of a real store is tens of thousands of tokens. Ask for what you need — 20 is usually plenty — and narrow with the filters rather than reading everything. Omit only when you genuinely need every item."},
 				"offset": map[string]any{"type": "integer", "minimum": 0, "description": "Skip this many items before applying limit, for paging through a filtered list."},
 				"full":   map[string]any{"type": "boolean", "description": "Return whole entities instead of the compact field set. Rarely needed; it multiplies the response size and adds fields (per-day time maps, theme colours, issue-integration ids) that are usually noise."},
 			},
@@ -287,7 +287,7 @@ func (s *Server) registerTools() {
 			"type": "object",
 			"properties": map[string]any{
 				"query":  map[string]any{"type": "string", "description": "Filter by name substring."},
-				"limit":  map[string]any{"type": "integer", "minimum": 0, "description": "Return at most this many items. Strongly preferred: an unfiltered list of a real store is tens of thousands of tokens. Ask for what you need — 20 is usually plenty — and narrow with the filters rather than reading everything. Omit only when you genuinely need every item."},
+				"limit":  map[string]any{"type": "integer", "minimum": 1, "description": "Return at most this many items. Strongly preferred: an unfiltered list of a real store is tens of thousands of tokens. Ask for what you need — 20 is usually plenty — and narrow with the filters rather than reading everything. Omit only when you genuinely need every item."},
 				"offset": map[string]any{"type": "integer", "minimum": 0, "description": "Skip this many items before applying limit, for paging through a filtered list."},
 				"full":   map[string]any{"type": "boolean", "description": "Return whole entities instead of the compact field set. Rarely needed; it multiplies the response size and adds fields (per-day time maps, theme colours, issue-integration ids) that are usually noise."},
 			},

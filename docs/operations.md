@@ -410,9 +410,9 @@ List responses carry a reduced field set unless you ask for more:
 
 | Entity | Returned by default |
 |---|---|
-| task | `id`, `title`, `isDone`, `projectId`, `tagIds`, `parentId`, `subTaskIds`, `timeSpent`, `timeEstimate`, `notes`, `dueDay`, `doneOn` |
+| task | `id`, `title`, `isDone`, `projectId`, `tagIds`, `parentId`, `subTaskIds`, `timeSpent`, `timeEstimate`, `notes`, `dueDay`, `dueWithTime`, `plannedAt`, `doneOn` |
 | project | `id`, `title`, `isArchived` |
-| tag | `id`, `title`, `taskIds` |
+| tag | `id`, `title` |
 
 Fields absent from a response stay absent rather than becoming null — SP
 distinguishes the two, and so does the rest of the bridge.

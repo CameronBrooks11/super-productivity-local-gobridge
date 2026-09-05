@@ -496,9 +496,8 @@ func validateTaskListFilters(payload map[string]json.RawMessage) (map[string]str
 }
 
 // validateQueryOnly validates the payload for project.list and tag.list: an
-// optional 'query' filter plus the bridge-side shaping options.
-//
-// validateQueryOnly validates a payload that only accepts "query" (string).
+// optional 'query' filter plus the bridge-side shaping options (limit, offset,
+// full), which are applied after SP responds and never forwarded.
 func validateQueryOnly(payload map[string]json.RawMessage) (map[string]string, *Result) {
 	unknown := extraKeys(payload, map[string]bool{
 		"query": true, "limit": true, "offset": true, "full": true,

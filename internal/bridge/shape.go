@@ -21,9 +21,15 @@ package bridge
 //
 // doneOn and dueDay stay: "what did I finish today" and "what is due" are
 // ordinary questions, and both are single scalars.
+// plannedAt and dueWithTime are included because add_task and update_task can
+// set them: a caller that cannot read back what it just wrote cannot confirm
+// the write, or find the tasks it needs to clear. Neither appears on the store
+// this was measured against, so they cost nothing there; project() only emits
+// fields the response actually carried.
 var compactTaskFields = []string{
 	"id", "title", "isDone", "projectId", "tagIds", "parentId",
-	"subTaskIds", "timeSpent", "timeEstimate", "notes", "dueDay", "doneOn",
+	"subTaskIds", "timeSpent", "timeEstimate", "notes",
+	"dueDay", "dueWithTime", "plannedAt", "doneOn",
 }
 
 // compactProjectFields keeps what identifies a project. taskIds and

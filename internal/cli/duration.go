@@ -22,6 +22,14 @@ import (
 //
 // Days are accepted as a convenience since time.ParseDuration stops at hours,
 // and a multi-day estimate is otherwise an awkward number of hours.
+// time.Duration is int64 nanoseconds, so it tops out around 292 years. A value
+// past that is well-formed but out of range, and reporting it as bad syntax
+// sends the reader to fix something already correct.
+const (
+	maxDurationHours = 2562047.0
+	maxDurationDays  = int(maxDurationHours) / 24
+)
+
 func parseDurationMs(s string) (int64, error) {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
@@ -36,6 +44,13 @@ func parseDurationMs(s string) (int64, error) {
 		return ms, nil
 	}
 
+	// Catch the sign here: expandDays compares days*24 against a positive
+	// ceiling, so a negative day count slipped past it and was reported as bad
+	// syntax rather than as a negative duration.
+	if strings.HasPrefix(trimmed, "-") {
+		return 0, fmt.Errorf("duration must not be negative")
+	}
+
 	expanded, err := expandDays(trimmed)
 	if err != nil {
 		return 0, err
@@ -43,10 +58,17 @@ func parseDurationMs(s string) (int64, error) {
 
 	d, err := time.ParseDuration(expanded)
 	if err != nil {
-		return 0, fmt.Errorf("not a duration: use milliseconds (5400000) or a unit suffix (1h30m, 90m, 2d)")
+		return 0, fmt.Errorf("not a duration, or out of range: use milliseconds (5400000) "+
+			"or a unit suffix (1h30m, 90m, 2d); the maximum is about %d days", maxDurationDays)
 	}
 	if d < 0 {
 		return 0, fmt.Errorf("duration must not be negative")
+	}
+	// Super Productivity stores milliseconds. A sub-millisecond value truncated
+	// to 0 silently, so `--time-spent 500us` wrote timeSpent: 0 and wiped the
+	// recorded time instead of being rejected.
+	if ms := d.Milliseconds(); ms == 0 && d > 0 {
+		return 0, fmt.Errorf("duration is smaller than a millisecond, which is the smallest unit Super Productivity stores")
 	}
 	return d.Milliseconds(), nil
 }
@@ -74,9 +96,8 @@ func expandDays(s string) (string, error) {
 	// time.Duration is int64 nanoseconds, so it tops out around 292 years. A
 	// value past that is well-formed but out of range, and saying "not a
 	// duration" would send the reader to fix syntax that is already correct.
-	const maxHours = 2562047.0
-	if days*24 > maxHours {
-		return "", fmt.Errorf("duration is too large: the maximum is about %d days", int(maxHours)/24)
+	if days*24 > maxDurationHours {
+		return "", fmt.Errorf("duration is too large: the maximum is about %d days", maxDurationDays)
 	}
 	hours := strconv.FormatFloat(days*24, 'f', -1, 64)
 	rest := s[i+1:]

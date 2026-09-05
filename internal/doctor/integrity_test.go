@@ -1085,3 +1085,73 @@ func TestRun_EmptyStringArgumentIsRejected(t *testing.T) {
 		t.Fatalf("an empty-string argument must exit 2, got %d", code)
 	}
 }
+
+// The degraded early return sits above the sort at the end of CheckIntegrity,
+// so Duplicated kept raw map iteration order and --json's output varied run to
+// run. Many ids and repeated runs, since one duplicate cannot show ordering.
+func TestIntegrity_DuplicatedIsSortedOnTheDegradedPath(t *testing.T) {
+	ids := []string{"d5", "d1", "d4", "d2", "d6", "d3"}
+	pool := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		pool = append(pool, task(id))
+	}
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/projects":
+			w.Write([]byte(`{"ok":true,"data":[{"id":"p_broken","title":"Inbox"}]}`))
+		case r.URL.Path == "/tasks":
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": pool})
+		default:
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+		}
+	})
+	want := []string{"d1", "d2", "d3", "d4", "d5", "d6"}
+	for i := 0; i < 12; i++ {
+		r, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(r.Duplicated) != len(want) {
+			t.Fatalf("run %d: got %v", i, r.Duplicated)
+		}
+		for j, id := range want {
+			if r.Duplicated[j] != id {
+				t.Fatalf("run %d: Duplicated must be sorted, got %v", i, r.Duplicated)
+			}
+		}
+	}
+}
+
+// A partial reference count read as authoritative invites the wrong conclusion.
+func TestIntegrity_ReferencedIsZeroedWhenIndexUnreadable(t *testing.T) {
+	srv := serverWithProjects(t, `[{"id":"p_ok","taskIds":["t1","t2"],"backlogTaskIds":[]},{"id":"p_broken","title":"Inbox"}]`)
+	r, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r.Referenced != 0 {
+		t.Fatalf("a partial reference count must not be reported, got %d", r.Referenced)
+	}
+}
+
+// A deterministic index error will fail identically on a re-pull, so the second
+// full store pull is pure cost.
+func TestConfirmed_IndexErrorSkipsTheSecondPass(t *testing.T) {
+	calls := 0
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/projects" {
+			calls++
+			w.Write([]byte(`{"ok":true,"data":[{"id":"p1","title":"Inbox"}]}`))
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+	})
+	if _, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("a deterministic index error must not trigger a re-pull, got %d /projects calls", calls)
+	}
+}

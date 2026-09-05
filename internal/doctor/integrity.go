@@ -231,6 +231,13 @@ func CheckIntegrity(ctx context.Context, client *bridge.Client) (IntegrityReport
 		note(collectIDs(referenced, t, "/tasks?source=archived", "subTaskIds"))
 	}
 	report.Referenced = len(referenced)
+	if indexErr != nil {
+		// The loops keep going after the first bad entity, so this count covers
+		// only the entities that parsed. Reporting a partial figure as if it
+		// were the reference total invites exactly the wrong conclusion, so it
+		// is cleared rather than shown.
+		report.Referenced = 0
+	}
 
 	// An unreadable index makes the reference set untrustworthy, so the
 	// reference-derived verdicts are withheld. Everything derived from the task
@@ -239,6 +246,10 @@ func CheckIntegrity(ctx context.Context, client *bridge.Client) (IntegrityReport
 	// corruption event this check exists for. So the run degrades to unconfirmed
 	// rather than failing outright.
 	if indexErr != nil {
+		// Duplicated is built from map iteration, so it must be sorted here too
+		// — the early return sits above the sort at the end of the function, and
+		// an unsorted slice makes --json nondeterministic run to run.
+		sort.Strings(report.Duplicated)
 		report.Unconfirmed = true
 		report.UnconfirmedReason = indexErr.Error()
 		return report, nil
@@ -296,6 +307,11 @@ func CheckIntegrityConfirmed(ctx context.Context, client *bridge.Client) (Integr
 	first, err := CheckIntegrity(ctx, client)
 	if err != nil || first.Clean() {
 		return first, err
+	}
+	if first.UnconfirmedReason != "" {
+		// An unreadable index is deterministic, so a second full store pull —
+		// four more requests — would fail identically and tell us nothing.
+		return first, nil
 	}
 
 	second, err := CheckIntegrity(ctx, client)

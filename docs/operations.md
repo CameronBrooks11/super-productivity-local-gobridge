@@ -198,6 +198,10 @@ Store integrity... UNCONFIRMED
   No verdict: see the reason above. Re-run once it is resolved.
 ```
 
+`referenced by index` reads 0 on this path rather than a partial count: the
+loops keep going past the first bad entity, so any figure would cover only the
+entities that happened to parse.
+
 **Monitoring should treat any non-zero exit as needing attention** rather than
 keying on 3 alone, since this class of problem reports as 1.
 

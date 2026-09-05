@@ -66,7 +66,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   subcommand the Python bridge does not have; and the steps were ordered so that
   installing the Python bridge would abort on the Go bridge's own console
   scripts, or silently reconfigure back to the Go bridge. Rewritten with the
-  release wheel URL, the correct executables, and removal ordered first (#41)
+  release wheel URL, the correct executables, and removal ordered first. The
+  forward migration had the mirror-image fault: it removed the Python bridge
+  after installing the Go one, and `uv tool uninstall` deletes every executable
+  in its receipt regardless of who owns the file now — so following the guide
+  deleted the Go binary and all four aliases, leaving neither bridge installed
+  (#41)
 
 - Corrected fixtures that described responses Super Productivity does not send:
   the tag fixture used `name` where SP sends `title`, the health fixture

@@ -23,37 +23,47 @@ dependency updates. Migration is one-way in practice — see
 
 ## Migration Steps
 
-### 1. Verify the Go bridge works
+**Remove the Python bridge first.** Both projects install the same five console
+scripts — `sp-local-bridge` and the `-mcp`, `-doctor`, `-print-config` and
+`-configure` variants — and `~/.local/bin` is both this repo's default install
+directory and uv's default bin directory. `uv tool uninstall` deletes every
+executable in its receipt without checking whether the file still belongs to
+it, so running it *after* installing the Go bridge deletes the Go binary and
+all four of its symlinks, leaving you with neither bridge.
 
-Download the Go binary and run diagnostics before removing the Python version:
+### 1. Note your configured hosts, then remove the Python bridge
 
-```sh
-./sp-local-bridge doctor
-```
-
-This confirms the binary can reach Super Productivity's local API.
-
-### 2. Update host config paths
-
-If your host config points to the Python entry point (e.g. a `uv` shim path), update the `command` field to point to the new Go binary location:
-
-```sh
-# Remove old Python config entry
-sp-local-bridge configure --remove claude-desktop
-
-# Write new entry pointing to Go binary
-sp-local-bridge configure claude-desktop
-```
-
-The `configure` command auto-detects the running binary path.
-
-### 3. Remove the Python bridge
+The Python bridge writes host config for `claude-desktop`, `vscode-copilot` and
+`codex`. Note which you use — you will rewrite them in step 3.
 
 ```sh
 uv tool uninstall sp-local-bridge
-# or
-pip uninstall sp-local-bridge
 ```
+
+If you installed it from a checkout with `pip` instead, use
+`pip uninstall sp-local-bridge`.
+
+### 2. Install the Go bridge and check it works
+
+```sh
+curl -sSL https://raw.githubusercontent.com/CameronBrooks11/super-productivity-local-gobridge/main/scripts/install.sh | bash
+sp-local-bridge doctor
+```
+
+This confirms the binary can reach Super Productivity's local API. See the
+[Install guide](./install) for manual and from-source options.
+
+### 3. Rewrite host config
+
+The old entries point at the Python entry point (a `uv` shim path), so they must
+be rewritten rather than left alone:
+
+```sh
+sp-local-bridge configure claude-desktop     # repeat per host you noted
+```
+
+`configure` auto-detects the running binary path. The Go bridge also supports
+`claude-code`, which the Python bridge did not.
 
 ### 4. Verify
 
@@ -72,20 +82,54 @@ stopgap while a problem here is reported, not as a destination.
 **Order matters.** Both projects install console scripts with the same five
 names — `sp-local-bridge` and the `-mcp`, `-doctor`, `-print-config` and
 `-configure` variants — into the same directory (`~/.local/bin` by default).
-Installing the Python bridge while the Go one is still there fails with
-`Executable already exists: sp-local-bridge`.
+Installing the Python bridge while the Go one is still there fails with:
+
+```
+error: Executables already exist: sp-local-bridge, sp-local-bridge-configure,
+sp-local-bridge-doctor, sp-local-bridge-mcp, sp-local-bridge-print-config
+(use --force to overwrite)
+```
+
+`--force` overwrites them in one step, but removing the Go bridge properly is
+cleaner and is what the steps below do.
 
 ### 1. Remove the Go bridge first
 
+Find where it actually is — the installer defaults to `~/.local/bin`, but the
+manual install puts it in `/usr/local/bin` and `go install` in `~/go/bin`, and
+removing the wrong directory leaves the Go binary on `PATH` and the rollback
+silently incomplete:
+
 ```sh
-scripts/uninstall.sh
+command -v sp-local-bridge
 ```
 
-Or by hand:
+::: warning Remove a claude-code entry first
+The Python bridge cannot write or remove `claude-code` host config — it only
+knows `claude-desktop`, `vscode-copilot` and `codex`. If you configured
+`claude-code`, clear it while the Go bridge is still installed:
 
 ```sh
-rm -f ~/.local/bin/sp-local-bridge \
-      ~/.local/bin/sp-local-bridge-{mcp,doctor,print-config,configure}
+sp-local-bridge configure --remove claude-code
+```
+
+Otherwise `~/.claude.json` keeps an entry pointing at a binary that no longer
+exists, and you will have to edit it by hand.
+:::
+
+From a checkout of this repo:
+
+```sh
+scripts/uninstall.sh          # honours INSTALL_DIR
+```
+
+Otherwise remove the binary and its four aliases from the directory
+`command -v` reported:
+
+```sh
+DIR=$(dirname "$(command -v sp-local-bridge)")
+rm -f "$DIR"/sp-local-bridge \
+      "$DIR"/sp-local-bridge-{mcp,doctor,print-config,configure}
 ```
 
 ### 2. Install the Python bridge

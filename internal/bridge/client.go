@@ -96,10 +96,16 @@ func (c *Client) translateError(err error) Result {
 }
 
 func (c *Client) translateResponse(resp *http.Response) Result {
-	if resp.StatusCode == 404 {
-		return Failure(ErrTaskNotFound, "Resource not found.", map[string]any{"status_code": 404})
-	}
-
+	// A 404 is not read specially. SP distinguishes a missing task from a
+	// missing route in the response body — TASK_NOT_FOUND versus NOT_FOUND —
+	// and short-circuiting before parsing threw that away, reporting every 404
+	// as a missing task. Callers that branch on the code were then unable to
+	// tell "this task is gone" from "this route does not exist", and a mistyped
+	// or removed route sent whoever was debugging it looking for a task.
+	//
+	// The envelope path below handles both: translateEnvelope uses the code SP
+	// supplied. A 404 whose body is empty or unparseable falls through to
+	// SP_ERROR, which is the honest answer when we cannot tell what was missing.
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {

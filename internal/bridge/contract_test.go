@@ -33,6 +33,7 @@ var contractErrorCodes = []string{
 	ErrUnsupportedOperation,
 	ErrInvalidInput,
 	ErrTaskNotFound,
+	ErrNotFound,
 	ErrProjectNotFound,
 	ErrSPError,
 	ErrInternalError,

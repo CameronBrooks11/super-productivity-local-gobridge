@@ -93,9 +93,31 @@ The `taskCount` in `get_status` reflects the active pool including done tasks (n
 | `UNSUPPORTED_OPERATION` | Operation exists but is not implemented |
 | `INVALID_INPUT` | Payload validation failed |
 | `TASK_NOT_FOUND` | Task ID not found |
+| `NOT_FOUND` | The route does not exist — not the same as a missing task |
 | `PROJECT_NOT_FOUND` | Project ID not found |
 | `SP_ERROR` | SP returned an error |
 | `INTERNAL_ERROR` | Unexpected bridge error |
+
+### Two kinds of 404
+
+Super Productivity answers both a missing task and a missing route with HTTP
+404, distinguishing them only in the body:
+
+```console
+$ curl -s http://127.0.0.1:3876/tasks/GHOST_ID
+{"ok":false,"error":{"code":"TASK_NOT_FOUND","message":"Task not found"}}
+
+$ curl -s http://127.0.0.1:3876/definitely-not-a-route
+{"ok":false,"error":{"code":"NOT_FOUND","message":"Route not found"}}
+```
+
+The bridge reads the body and passes SP's own code through, so `TASK_NOT_FOUND`
+means the task is genuinely absent. Earlier versions reported every 404 as
+`TASK_NOT_FOUND`, which sent anyone debugging a mistyped or removed route
+looking for a task that was never the problem.
+
+A 404 whose body is empty or not JSON — something a proxy might produce, but not
+SP — reports `SP_ERROR` rather than guessing which was missing.
 
 ## Intentionally Excluded
 

@@ -280,71 +280,33 @@ func exitCode(failures int, inconsistent bool) int {
 	}
 }
 
-// checkHostConfigs returns list of host names whose config files contain our entry.
+// checkHostConfigs returns one label per host whose config file contains our
+// entry. Detection lives in hostcfg, which owns the per-host paths and keys; a
+// label here only decides how to say what was found.
 func checkHostConfigs() []string {
-	checks := hostcfg.ConfigTargets()
-
 	var configured []string
-	for _, c := range checks {
-		data, err := os.ReadFile(c.Path)
-		if err != nil {
+	for _, d := range hostcfg.DetectConfigured() {
+		if !d.Configured {
 			continue
 		}
-		if c.Format == "json" {
-			var obj map[string]any
-			if json.Unmarshal(data, &obj) != nil {
-				continue
-			}
-			servers, _ := obj[c.ServerKey].(map[string]any)
-			if servers != nil && servers[c.EntryName] != nil {
-				configured = append(configured, c.Name)
-			}
-		} else {
-			// TOML check: verify the table header exists at start of line
-			// and has a command key in the following section.
-			if tomlHasEntry(string(data), c.ServerKey, c.EntryName) {
-				configured = append(configured, c.Name)
-			}
-		}
+		configured = append(configured, hostConfigLabel(d))
 	}
 	return configured
 }
 
+// hostConfigLabel names a configured host, qualifying it when the entry only
+// applies to specific projects. Saying "claude-code" flat in that case would
+// claim more than was found: the host is configured where those projects are
+// and nowhere else.
+func hostConfigLabel(d hostcfg.Detection) string {
+	if d.Scope != hostcfg.ScopeLocal {
+		return d.Host
+	}
+	return fmt.Sprintf("%s (%s)", d.Host, d.ScopeSummary())
+}
+
 // expectedToolCount is the number of MCP tools the bridge should expose.
 const expectedToolCount = 16
-
-// tomlHasEntry checks if a TOML file contains a table header [serverKey.entryName]
-// at the start of a line, with a "command" key in the section body.
-// This is a line-based parse that avoids matching inside strings or comments.
-func tomlHasEntry(data, serverKey, entryName string) bool {
-	header := fmt.Sprintf("[%s.%s]", serverKey, entryName)
-	lines := strings.Split(data, "\n")
-	inSection := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		// Skip comments
-		if strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		if trimmed == header {
-			inSection = true
-			continue
-		}
-		// Another table header ends our section
-		if inSection && strings.HasPrefix(trimmed, "[") {
-			break
-		}
-		if inSection && strings.HasPrefix(trimmed, "command") {
-			// Verify it's a key assignment (command = ...)
-			rest := strings.TrimPrefix(trimmed, "command")
-			rest = strings.TrimSpace(rest)
-			if strings.HasPrefix(rest, "=") {
-				return true
-			}
-		}
-	}
-	return false
-}
 
 // multicallAliases are the expected symlink/hardlink names.
 var multicallAliases = []string{

@@ -24,6 +24,12 @@ type hostMeta struct {
 	serverKey  string // top-level key in the config file
 	entryName  string // our entry name within that key
 	configPath func() string
+	// localScopeKey is the top-level key under which a host records
+	// per-project servers, keyed by project directory. Empty for hosts that
+	// keep every server in one map. Detection reads it; configure does not
+	// write it, since which project to write to depends on the caller's
+	// working directory rather than on a fixed path.
+	localScopeKey string
 }
 
 // appDataDir returns %APPDATA%, falling back to the conventional location when
@@ -71,9 +77,10 @@ var hosts = map[string]hostMeta{
 	// .mcp.json; those are left to `claude mcp add`, since they depend on the
 	// working directory rather than on a single fixed path per host.
 	HostClaudeCode: {
-		format:    "json",
-		serverKey: "mcpServers",
-		entryName: "super-productivity",
+		format:        "json",
+		serverKey:     "mcpServers",
+		entryName:     "super-productivity",
+		localScopeKey: "projects",
 		configPath: func() string {
 			return filepath.Join(homeDir(), ".claude.json")
 		},
@@ -132,6 +139,152 @@ func ConfigTargets() []ConfigTarget {
 		})
 	}
 	return targets
+}
+
+// --- Detection ---
+
+// Scopes an entry can be found in. A host that keeps every server in one
+// top-level map only ever reports ScopeUser.
+const (
+	// ScopeUser is the config that applies wherever the host runs.
+	ScopeUser = "user"
+	// ScopeLocal is an entry recorded against a single project directory.
+	// Claude Code calls this "local" scope and stores it in ~/.claude.json
+	// under projects.<dir>; it is the default scope for `claude mcp add`.
+	ScopeLocal = "local"
+)
+
+// Detection reports whether one host has our MCP entry, and in which scope.
+type Detection struct {
+	Host       string
+	Configured bool
+	// Scope is ScopeUser when the entry applies everywhere, ScopeLocal when it
+	// was found only against specific projects, and empty when not configured.
+	Scope string
+	// Projects lists the project directories carrying the entry, sorted. A
+	// user-scope entry already applies everywhere, so when both exist Scope
+	// stays ScopeUser and this is only the extra detail.
+	Projects []string
+}
+
+// ScopeSummary renders where a detected entry applies, in one short phrase, or
+// the empty string when the host is not configured. It exists so that doctor
+// and `configure --status` describe a scope the same way.
+func (d Detection) ScopeSummary() string {
+	if !d.Configured {
+		return ""
+	}
+	if d.Scope != ScopeLocal {
+		return "user scope"
+	}
+	if len(d.Projects) == 1 {
+		return "local scope: " + d.Projects[0]
+	}
+	return fmt.Sprintf("local scope: %d projects", len(d.Projects))
+}
+
+// DetectConfigured reports, for every supported host in stable name order,
+// whether that host's config file contains our entry.
+//
+// Reading is best effort: a missing or unparsable config counts as not
+// configured rather than as an error, because the callers are diagnostics that
+// still have to report on the remaining hosts.
+func DetectConfigured() []Detection {
+	targets := ConfigTargets()
+	out := make([]Detection, 0, len(targets))
+	for _, t := range targets {
+		out = append(out, detectOne(t, hosts[t.Name].localScopeKey))
+	}
+	return out
+}
+
+func detectOne(t ConfigTarget, localScopeKey string) Detection {
+	d := Detection{Host: t.Name}
+
+	data, err := os.ReadFile(t.Path)
+	if err != nil {
+		return d
+	}
+
+	if t.Format != "json" {
+		if tomlHasEntry(string(data), t.ServerKey, t.EntryName) {
+			d.Configured = true
+			d.Scope = ScopeUser
+		}
+		return d
+	}
+
+	var obj map[string]any
+	if json.Unmarshal(data, &obj) != nil {
+		return d
+	}
+
+	if servers, _ := obj[t.ServerKey].(map[string]any); servers != nil && servers[t.EntryName] != nil {
+		d.Configured = true
+		d.Scope = ScopeUser
+	}
+
+	if localScopeKey != "" {
+		d.Projects = projectsWithEntry(obj, localScopeKey, t.ServerKey, t.EntryName)
+		if len(d.Projects) > 0 {
+			d.Configured = true
+			if d.Scope == "" {
+				d.Scope = ScopeLocal
+			}
+		}
+	}
+	return d
+}
+
+// projectsWithEntry returns the project directories whose per-project section
+// carries our entry, sorted for stable output.
+func projectsWithEntry(obj map[string]any, localScopeKey, serverKey, entryName string) []string {
+	projects, _ := obj[localScopeKey].(map[string]any)
+	var dirs []string
+	for dir, v := range projects {
+		section, _ := v.(map[string]any)
+		if section == nil {
+			continue
+		}
+		if servers, _ := section[serverKey].(map[string]any); servers != nil && servers[entryName] != nil {
+			dirs = append(dirs, dir)
+		}
+	}
+	sort.Strings(dirs)
+	return dirs
+}
+
+// tomlHasEntry checks if a TOML file contains a table header [serverKey.entryName]
+// at the start of a line, with a "command" key in the following section body.
+// This is a line-based parse that avoids matching inside strings or comments.
+func tomlHasEntry(data, serverKey, entryName string) bool {
+	header := fmt.Sprintf("[%s.%s]", serverKey, entryName)
+	lines := strings.Split(data, "\n")
+	inSection := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Skip comments
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if trimmed == header {
+			inSection = true
+			continue
+		}
+		// Another table header ends our section
+		if inSection && strings.HasPrefix(trimmed, "[") {
+			break
+		}
+		if inSection && strings.HasPrefix(trimmed, "command") {
+			// Verify it's a key assignment (command = ...)
+			rest := strings.TrimPrefix(trimmed, "command")
+			rest = strings.TrimSpace(rest)
+			if strings.HasPrefix(rest, "=") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // --- Command resolution ---
@@ -253,6 +406,7 @@ func printConfigUsage() {
 func RunConfigure(args []string) int {
 	dryRun := false
 	remove := false
+	status := false
 	var remaining []string
 
 	for _, arg := range args {
@@ -261,6 +415,8 @@ func RunConfigure(args []string) int {
 			dryRun = true
 		case "--remove":
 			remove = true
+		case "--status":
+			status = true
 		case "--help", "-h":
 			configureUsage()
 			return 0
@@ -269,6 +425,27 @@ func RunConfigure(args []string) int {
 				remaining = append(remaining, arg)
 			}
 		}
+	}
+
+	// --status reports on every host, so it takes no host argument and cannot
+	// be combined with a flag that writes. Accepting either silently would
+	// turn `configure --remove --status <host>` into an exit-0 no-op that
+	// leaves the entry in place, and would let `configure --status <host>`
+	// answer about hosts the caller did not ask about.
+	if status {
+		switch {
+		case remove:
+			fmt.Fprintln(os.Stderr, "Error: --status cannot be combined with --remove")
+			return 2
+		case dryRun:
+			fmt.Fprintln(os.Stderr, "Error: --status cannot be combined with --dry-run")
+			return 2
+		case len(remaining) > 0:
+			fmt.Fprintf(os.Stderr, "Error: --status reports on every host and takes no host argument (got '%s')\n", remaining[0])
+			return 2
+		}
+		printHostStatus()
+		return 0
 	}
 
 	if len(remaining) == 0 {
@@ -292,6 +469,37 @@ func RunConfigure(args []string) int {
 	return addEntry(hostName, configPath, meta, dryRun)
 }
 
+// printHostStatus reports, for every supported host, whether our MCP entry is
+// present. Installing replaces the binary and configures no host, so this is
+// the answer to "which hosts still need configure?" — a question nothing else
+// answered without running doctor. It reads config files only and never
+// contacts SP, so it stays usable from an install script.
+func printHostStatus() {
+	detections := DetectConfigured()
+	anyConfigured := false
+
+	fmt.Println("Host config status:")
+	for _, d := range detections {
+		if d.Configured {
+			anyConfigured = true
+			fmt.Printf("  %-20s configured (%s)\n", d.Host, d.ScopeSummary())
+			continue
+		}
+		fmt.Printf("  %-20s not configured\n", d.Host)
+	}
+
+	fmt.Println()
+	if !anyConfigured {
+		fmt.Println("No host is configured.")
+	}
+	// The host names are printed in both cases: the caller being invited to
+	// configure another host is exactly the one who needs to know the valid
+	// values. They come from sortedHostNames() so that a newly supported host
+	// appears here without anyone remembering to update a second list.
+	fmt.Println("Configure a host with: sp-local-bridge configure <host>")
+	fmt.Printf("  Supported hosts: %s\n", strings.Join(sortedHostNames(), ", "))
+}
+
 func configureUsage() {
 	fmt.Println("Usage: sp-local-bridge configure [OPTIONS] <host>")
 	fmt.Println()
@@ -300,6 +508,7 @@ func configureUsage() {
 	fmt.Println("Options:")
 	fmt.Println("  --dry-run     Show what would be written without making changes")
 	fmt.Println("  --remove      Remove our entry from the host config")
+	fmt.Println("  --status      Report which hosts are configured (no host argument)")
 	fmt.Println()
 	fmt.Println("Supported hosts:")
 	for _, h := range sortedHostNames() {

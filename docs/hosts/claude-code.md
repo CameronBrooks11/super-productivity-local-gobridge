@@ -35,6 +35,19 @@ claude mcp add -s local super-productivity -- ~/.local/bin/sp-local-bridge mcp
 claude mcp add -s project super-productivity -- ~/.local/bin/sp-local-bridge mcp
 ```
 
+Note that `-s local` is the default, so a bare `claude mcp add` configures this
+project only.
+
+`sp-local-bridge configure --status` reports which scope it found, naming the
+project directory for a local-scope entry:
+
+```
+  claude-code          configured (local scope: /home/you/repo)
+```
+
+It does not read the project scope in a repo's `.mcp.json`, so an entry added
+with `-s project` is reported as not configured.
+
 ## Manual Setup
 
 Add to `~/.claude.json`:

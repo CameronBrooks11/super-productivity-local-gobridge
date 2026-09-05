@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/CameronBrooks11/super-productivity-local-gobridge/internal/hostcfg"
 )
 
 func TestCheckHostConfigsNoFiles(t *testing.T) {
@@ -76,42 +78,70 @@ func TestCheckHostConfigsDetectsTOML(t *testing.T) {
 	}
 }
 
-func TestTomlHasEntryValid(t *testing.T) {
-	data := "[mcp_servers.superProductivity]\ncommand = \"sp-local-bridge\"\nargs = [\"mcp\"]\n"
-	if !tomlHasEntry(data, "mcp_servers", "superProductivity") {
-		t.Error("expected true for valid TOML entry")
+// A server added with `claude mcp add` defaults to local scope, which is
+// recorded per project. doctor used to report "none configured" for it.
+func TestCheckHostConfigsDetectsClaudeCodeLocalScope(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", tmp)
+		t.Setenv("APPDATA", filepath.Join(tmp, "AppData", "Roaming"))
+	}
+
+	content := `{"projects":{"/home/u/repo":{"mcpServers":{"super-productivity":{"command":"sp-local-bridge"}}}}}`
+	if err := os.WriteFile(filepath.Join(tmp, ".claude.json"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := checkHostConfigs()
+	want := "claude-code (local scope: /home/u/repo)"
+	if len(result) != 1 || result[0] != want {
+		t.Errorf("expected [%s], got %v", want, result)
 	}
 }
 
-func TestTomlHasEntryNoCommand(t *testing.T) {
-	// Has the header but no command key
-	data := "[mcp_servers.superProductivity]\nargs = [\"mcp\"]\n"
-	if tomlHasEntry(data, "mcp_servers", "superProductivity") {
-		t.Error("expected false when command key is missing")
+func TestHostConfigLabel(t *testing.T) {
+	tests := []struct {
+		name string
+		in   hostcfg.Detection
+		want string
+	}{
+		{
+			name: "user scope is unqualified",
+			in:   hostcfg.Detection{Host: "claude-code", Configured: true, Scope: hostcfg.ScopeUser},
+			want: "claude-code",
+		},
+		{
+			name: "a single local project is named",
+			in: hostcfg.Detection{
+				Host: "claude-code", Configured: true, Scope: hostcfg.ScopeLocal,
+				Projects: []string{"/home/u/repo"},
+			},
+			want: "claude-code (local scope: /home/u/repo)",
+		},
+		{
+			name: "several local projects are counted, not listed",
+			in: hostcfg.Detection{
+				Host: "claude-code", Configured: true, Scope: hostcfg.ScopeLocal,
+				Projects: []string{"/a", "/b", "/c"},
+			},
+			want: "claude-code (local scope: 3 projects)",
+		},
+		{
+			name: "user scope alongside local projects stays unqualified",
+			in: hostcfg.Detection{
+				Host: "claude-code", Configured: true, Scope: hostcfg.ScopeUser,
+				Projects: []string{"/home/u/repo"},
+			},
+			want: "claude-code",
+		},
 	}
-}
-
-func TestTomlHasEntryInComment(t *testing.T) {
-	// Header exists only in a comment
-	data := "# [mcp_servers.superProductivity]\ncommand = \"sp-local-bridge\"\n"
-	if tomlHasEntry(data, "mcp_servers", "superProductivity") {
-		t.Error("expected false when header is in a comment")
-	}
-}
-
-func TestTomlHasEntryDifferentSection(t *testing.T) {
-	// Command is in a different section
-	data := "[other.section]\ncommand = \"other\"\n\n[mcp_servers.superProductivity]\nargs = [\"mcp\"]\n"
-	if tomlHasEntry(data, "mcp_servers", "superProductivity") {
-		t.Error("expected false when command is in wrong section")
-	}
-}
-
-func TestTomlHasEntrySubstring(t *testing.T) {
-	// Header is a substring but not at line start
-	data := "x = \"[mcp_servers.superProductivity]\"\ncommand = \"sp-local-bridge\"\n"
-	if tomlHasEntry(data, "mcp_servers", "superProductivity") {
-		t.Error("expected false when header is inside a string value")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hostConfigLabel(tt.in); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

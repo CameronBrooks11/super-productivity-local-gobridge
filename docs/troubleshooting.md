@@ -29,10 +29,15 @@ This checks:
 
 **Fix**:
 ```bash
-sp-local-bridge doctor        # Check what's wrong
-sp-local-bridge configure <host>  # Re-run configure
+sp-local-bridge configure --status  # Which hosts have an entry, and in which scope
+sp-local-bridge doctor              # Check what else is wrong
+sp-local-bridge configure <host>    # Re-run configure
 ```
 Then restart the host application.
+
+`--status` reports whether an entry exists, not whether the command it records
+still resolves. An entry left pointing at a binary that has since moved is still
+reported as configured; re-running `configure <host>` rewrites the path.
 
 ### "command not found" after install
 

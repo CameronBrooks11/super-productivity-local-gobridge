@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `configure --status` reports which hosts have an MCP entry and in which scope,
+  reading config files only so it works with SP closed. `scripts/install.sh`
+  prints it after installing: the script configures no host and leaves existing
+  configs untouched, so nothing previously told the user which hosts still
+  needed `configure`. An unconfigured host produces no error — the symptom is an
+  MCP client that lists no tools (#12)
+
+### Fixed
+
+- `doctor` reported `Host configs... none configured` for a Claude Code server
+  that was configured and connected. Detection read only the top-level
+  `mcpServers` map in `~/.claude.json`, missing local scope, which is stored per
+  project and is the default for `claude mcp add`. Local-scope entries are now
+  found and reported with the project they apply to, so the line no longer
+  claims more, or less, than was found (#49)
+
 ## [0.3.0] - 2026-09-05
 
 ### Added

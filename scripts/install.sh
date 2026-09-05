@@ -196,8 +196,24 @@ if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
   echo ""
 fi
 
+# Host config status. Installing configures no host and leaves existing host
+# configs untouched, so after this script finishes the user has no way to tell
+# which hosts still need `configure` short of running doctor. An unconfigured
+# host has no error to show for it — the symptom is an MCP client that lists no
+# tools — so report the state here.
+#
+# --status is newer than some installable versions, and VERSION can pin an older
+# one, so the output is captured: a version without the flag prints its usage
+# and exits non-zero, which would otherwise land in the middle of this summary.
+if STATUS_OUT="$("${INSTALL_DIR}/${BINARY}" configure --status 2>/dev/null)"; then
+  echo "$STATUS_OUT"
+else
+  echo "Host config status: not reported by this version."
+  echo "  Configure a host with: sp-local-bridge configure <host>"
+  echo "  Run 'sp-local-bridge configure --help' for the supported hosts."
+fi
+echo ""
+
 # Next steps
 echo "Next steps:"
-echo "  1. sp-local-bridge doctor        — verify SP app connection"
-echo "  2. sp-local-bridge configure <host> — configure an MCP host"
-echo "     Supported hosts: claude-code, claude-desktop, vscode-copilot, codex"
+echo "  sp-local-bridge doctor           — verify SP app connection"

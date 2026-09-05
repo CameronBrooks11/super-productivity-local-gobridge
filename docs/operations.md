@@ -177,19 +177,29 @@ store reported as corrupt — and because that result is deterministic it would
 survive both confirmation passes and be reported as confirmed. An empty list is
 legal: a project with no tasks is normal.
 
-A malformed index is reported as a **failed check (exit 1)**, not as an
-inconsistency (exit 3). That is deliberate: if a project's index cannot be read,
-the reference set cannot be trusted, and every task that project owns would look
-orphaned. Reporting "no verdict, here is the entity and field that broke" is
-honest where reporting corruption would be a guess.
+An unreadable index **degrades the run rather than failing it**. The
+reference-derived verdicts (`dangling`, `orphaned`) are withheld, because a
+reference set built from a broken index cannot be trusted — every task in that
+project would look orphaned. Everything derived from the task pools alone stays
+valid and is still reported: the pool counts, and `duplicated`, which needs no
+index at all. That matters, because in a real corruption event those are the
+signals worth keeping.
 
-The practical consequence is that **monitoring should treat any non-zero exit as
-needing attention**, rather than keying on 3 alone. Exit 1 carries the reason on
-the same line:
+The report comes back `unconfirmed` with the reason naming the entity and field,
+and exits 1:
 
 ```console
-Store integrity... FAILED: /projects: p_broken is missing "taskIds"; cannot judge integrity
+Store integrity... UNCONFIRMED
+  active tasks        : 2
+  archived tasks      : 0
+  referenced by index : 0
+  reason              : /projects: p_broken is missing "taskIds"; cannot judge integrity
+
+  No verdict: see the reason above. Re-run once it is resolved.
 ```
+
+**Monitoring should treat any non-zero exit as needing attention** rather than
+keying on 3 alone, since this class of problem reports as 1.
 
 If any of the four pulls returns something that is not a list — `data: null`, an
 empty body, a non-JSON payload — the check reports an error naming that endpoint

@@ -885,30 +885,47 @@ func serverWithProjects(t *testing.T, projectsJSON string) *httptest.Server {
 	})
 }
 
+// assertIndexUnreadable pins the contract for an unreadable index: no
+// reference-derived verdict is emitted (that was the false-orphans bug), the
+// run is marked unconfirmed, and the reason names what broke.
+func assertIndexUnreadable(t *testing.T, srv *httptest.Server, want ...string) IntegrityReport {
+	t.Helper()
+	r, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("an unreadable index degrades the run, it does not fail it: %v", err)
+	}
+	if !r.Unconfirmed || r.UnconfirmedReason == "" {
+		t.Fatalf("expected an unconfirmed report with a reason, got %+v", r)
+	}
+	if len(r.Dangling) > 0 || len(r.Orphaned) > 0 {
+		t.Fatalf("reference-derived verdicts must be withheld, got dangling=%v orphaned=%v", r.Dangling, r.Orphaned)
+	}
+	if r.Clean() {
+		t.Fatal("an unreadable index is not a clean result")
+	}
+	for _, w := range want {
+		if !strings.Contains(r.UnconfirmedReason, w) {
+			t.Errorf("reason should mention %q, got: %s", w, r.UnconfirmedReason)
+		}
+	}
+	return r
+}
+
 func TestIntegrity_MissingIndexFieldIsAnError(t *testing.T) {
-	// The reviewer's exact repro: a project with no taskIds at all.
+	// The reviewer's exact repro: a project with no taskIds at all. Before the
+	// guard this reported both tasks as orphaned and exited 3.
 	srv := serverWithProjects(t, `[{"id":"p1","title":"Inbox"}]`)
-	_, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
-	if err == nil {
-		t.Fatal("a missing index field must be an error, not zero references")
-	}
-	if !strings.Contains(err.Error(), "taskIds") || !strings.Contains(err.Error(), "/projects") {
-		t.Fatalf("error should name the field and endpoint, got: %v", err)
-	}
+	assertIndexUnreadable(t, srv, "/projects", "taskIds", "p1")
 }
 
 func TestIntegrity_NullIndexFieldIsAnError(t *testing.T) {
 	srv := serverWithProjects(t, `[{"id":"p1","taskIds":null,"backlogTaskIds":[]}]`)
-	if _, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL)); err == nil {
-		t.Fatal("a null index field must be an error")
-	}
+	assertIndexUnreadable(t, srv, "taskIds")
 }
 
 func TestIntegrity_NonStringIndexEntryIsAnError(t *testing.T) {
 	srv := serverWithProjects(t, `[{"id":"p1","taskIds":["t1",42],"backlogTaskIds":[]}]`)
-	if _, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL)); err == nil {
-		t.Fatal("a non-string id must be an error")
-	}
+	assertIndexUnreadable(t, srv, "taskIds")
 }
 
 // An empty index is legal: a project with no tasks is normal.
@@ -934,9 +951,7 @@ func TestIntegrity_EmptyIndexFieldIsValid(t *testing.T) {
 // backlog task from the reference set.
 func TestIntegrity_MissingBacklogFieldIsAnError(t *testing.T) {
 	srv := serverWithProjects(t, `[{"id":"p1","taskIds":["t1","t2"]}]`)
-	if _, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL)); err == nil {
-		t.Fatal("a missing backlogTaskIds must be an error")
-	}
+	assertIndexUnreadable(t, srv, "backlogTaskIds")
 }
 
 // Asserting only the exit code proves nothing here: last-wins returns 2 as
@@ -993,45 +1008,80 @@ func serverWithRaw(t *testing.T, path, query, body string) *httptest.Server {
 
 func TestIntegrity_TagMissingTaskIDsIsAnError(t *testing.T) {
 	srv := serverWithRaw(t, "/tags", "", `[{"id":"g1","title":"Today"}]`)
-	_, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
-	if err == nil {
-		t.Fatal("a tag without taskIds must be an error")
-	}
-	if !strings.Contains(err.Error(), "/tags") || !strings.Contains(err.Error(), "g1") {
-		t.Fatalf("error should name the endpoint and the tag, got: %v", err)
-	}
+	assertIndexUnreadable(t, srv, "/tags", "g1")
 }
 
 func TestIntegrity_ActiveTaskMissingSubTaskIDsIsAnError(t *testing.T) {
 	srv := serverWithRaw(t, "/tasks", "active", `[{"id":"t1","title":"t1"}]`)
-	_, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
-	if err == nil {
-		t.Fatal("an active task without subTaskIds must be an error")
-	}
-	if !strings.Contains(err.Error(), "t1") {
-		t.Fatalf("error should name the task, got: %v", err)
-	}
+	assertIndexUnreadable(t, srv, "t1")
 }
 
 // The archived payload's shape differs from the active one (archived objects
 // carry a subTasks key that active objects lack), so this call site is the one
 // most likely to drift.
 func TestIntegrity_ArchivedTaskMissingSubTaskIDsIsAnError(t *testing.T) {
+	// The archived payload's shape differs from the active one (archived objects
+	// carry a subTasks key that active objects lack), so this call site is the
+	// one most likely to drift.
 	srv := serverWithRaw(t, "/tasks", "archived", `[{"id":"a1","title":"a1","subTasks":[]}]`)
-	_, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
-	if err == nil {
-		t.Fatal("an archived task without subTaskIds must be an error")
-	}
-	if !strings.Contains(err.Error(), "archived") || !strings.Contains(err.Error(), "a1") {
-		t.Fatalf("error should name the archived pool and the task, got: %v", err)
-	}
+	assertIndexUnreadable(t, srv, "archived", "a1")
 }
 
 // The entity id is the most actionable thing in a real corruption event.
 func TestIntegrity_ErrorNamesTheOffendingEntity(t *testing.T) {
 	srv := serverWithProjects(t, `[{"id":"p_broken","title":"Inbox"}]`)
-	_, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
-	if err == nil || !strings.Contains(err.Error(), "p_broken") {
-		t.Fatalf("error should name the offending entity, got: %v", err)
+	assertIndexUnreadable(t, srv, "p_broken")
+}
+
+// Duplicated is derived from the two task pools alone; no index can invalidate
+// it. Aborting on an unreadable index used to discard it along with the
+// reference-derived verdicts, throwing away the most actionable signal in
+// exactly the corruption event this check exists for.
+func TestIntegrity_PoolFindingsSurviveAnUnreadableIndex(t *testing.T) {
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/projects":
+			w.Write([]byte(`{"ok":true,"data":[{"id":"p_broken","title":"Inbox"}]}`))
+		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{task("both")}})
+		case r.URL.Path == "/tasks":
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{task("both")}})
+		default:
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+		}
+	})
+	r, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(r.Duplicated) != 1 || r.Duplicated[0] != "both" {
+		t.Fatalf("pool-derived findings must survive, got %v", r.Duplicated)
+	}
+	if r.ActiveTasks != 1 || r.ArchivedTasks != 1 {
+		t.Fatalf("pool counts must survive, got active=%d archived=%d", r.ActiveTasks, r.ArchivedTasks)
+	}
+	if !r.Unconfirmed {
+		t.Fatal("the run is still unconfirmed: the reference set could not be read")
+	}
+}
+
+// The confirmation pass must not clear a reason that came from the pass itself.
+func TestConfirmed_IndexReasonSurvivesConfirmation(t *testing.T) {
+	srv := serverWithProjects(t, `[{"id":"p1","title":"Inbox"}]`)
+	r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !r.Unconfirmed || r.UnconfirmedReason == "" {
+		t.Fatalf("an unreadable index must stay unconfirmed through confirmation, got %+v", r)
+	}
+}
+
+// bad doubled as both value and flag, so an argument that *is* the empty string
+// was unreportable: `doctor "$UNSET_VAR"` ran a silently shallow check.
+func TestRun_EmptyStringArgumentIsRejected(t *testing.T) {
+	if code := Run([]string{""}); code != 2 {
+		t.Fatalf("an empty-string argument must exit 2, got %d", code)
 	}
 }

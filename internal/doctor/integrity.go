@@ -70,10 +70,11 @@ func idField(m map[string]any, key string) (string, bool) {
 // and it is worse here: the result is deterministic, so it survives both
 // confirmation passes and is reported as a *confirmed* anomaly.
 //
-// Every one of these fields is present as a list on every object returned by SP
-// 18.10.0, so requiring them costs nothing today and turns a future rename into
-// a clear error instead of a false verdict. An empty list stays legal: a project
-// with no tasks is normal.
+// Audited against SP 18.10.0: all 12 projects, 3 tags, 284 active and 17
+// archived tasks carried every field as a list. That is one store on one
+// version, not a guarantee, so a violation degrades the check rather than
+// failing it — see CheckIntegrity. An empty list stays legal: a project with no
+// tasks is normal.
 func collectIDs(dst map[string]struct{}, m map[string]any, endpoint string, keys ...string) error {
 	// objectsOrError has already guaranteed an id, so name it: in a real
 	// corruption event it is the most actionable thing we can hand the user,
@@ -210,28 +211,38 @@ func CheckIntegrity(ctx context.Context, client *bridge.Client) (IntegrityReport
 	report.ArchivedTasks = len(archived)
 
 	referenced := make(map[string]struct{})
-	for _, p := range projectList {
-		if err := collectIDs(referenced, p, "/projects", "taskIds", "backlogTaskIds"); err != nil {
-			return report, err
+	var indexErr error
+	note := func(err error) {
+		if err != nil && indexErr == nil {
+			indexErr = err
 		}
 	}
+	for _, p := range projectList {
+		note(collectIDs(referenced, p, "/projects", "taskIds", "backlogTaskIds"))
+	}
 	for _, tag := range tagList {
-		if err := collectIDs(referenced, tag, "/tags", "taskIds"); err != nil {
-			return report, err
-		}
+		note(collectIDs(referenced, tag, "/tags", "taskIds"))
 	}
 	// Subtasks are referenced by their parent in either pool.
 	for _, t := range activeTasks {
-		if err := collectIDs(referenced, t, "/tasks?source=active", "subTaskIds"); err != nil {
-			return report, err
-		}
+		note(collectIDs(referenced, t, "/tasks?source=active", "subTaskIds"))
 	}
 	for _, t := range archivedTasks {
-		if err := collectIDs(referenced, t, "/tasks?source=archived", "subTaskIds"); err != nil {
-			return report, err
-		}
+		note(collectIDs(referenced, t, "/tasks?source=archived", "subTaskIds"))
 	}
 	report.Referenced = len(referenced)
+
+	// An unreadable index makes the reference set untrustworthy, so the
+	// reference-derived verdicts are withheld. Everything derived from the task
+	// pools alone stays valid, though — Duplicated needs no index — and
+	// discarding it would throw away the most actionable signal in exactly the
+	// corruption event this check exists for. So the run degrades to unconfirmed
+	// rather than failing outright.
+	if indexErr != nil {
+		report.Unconfirmed = true
+		report.UnconfirmedReason = indexErr.Error()
+		return report, nil
+	}
 
 	for id := range referenced {
 		if _, ok := known[id]; !ok {
@@ -346,7 +357,9 @@ func CheckIntegrityConfirmed(ctx context.Context, client *bridge.Client) (Integr
 		confirmed.Unresolved = append(confirmed.Unresolved, id)
 	}
 	sort.Strings(confirmed.Unresolved)
-	confirmed.Unconfirmed = len(confirmed.Unresolved) > 0
+	// Preserve a reason carried up from the pass itself (an unreadable index),
+	// which is independent of whether the two passes disagreed.
+	confirmed.Unconfirmed = len(confirmed.Unresolved) > 0 || confirmed.UnconfirmedReason != ""
 	return confirmed, nil
 }
 
@@ -390,12 +403,15 @@ func printIntegrity(report IntegrityReport) bool {
 	if len(report.Unresolved) > 0 {
 		fmt.Printf("  seen in one pass    : %d  %s\n", len(report.Unresolved), sample(report.Unresolved, 3))
 		if report.UnconfirmedReason != "" {
-			fmt.Printf("    The confirmation pass failed (%s), so these were seen only\n", report.UnconfirmedReason)
-			fmt.Println("    once. They are not necessarily transient.")
+			fmt.Println("    Seen only once, because the run could not be completed. They are")
+			fmt.Println("    not necessarily transient.")
 		} else {
 			fmt.Println("    Flagged by only one of the two passes, so most likely the store")
 			fmt.Println("    being edited while the check ran.")
 		}
+	}
+	if report.UnconfirmedReason != "" {
+		fmt.Printf("  reason              : %s\n", report.UnconfirmedReason)
 	}
 
 	if report.HasConfirmedAnomalies() {
@@ -408,8 +424,10 @@ func printIntegrity(report IntegrityReport) bool {
 	if report.Unconfirmed {
 		fmt.Println()
 		if report.UnconfirmedReason != "" {
-			fmt.Println("  No verdict: the confirmation pass did not complete.")
-			fmt.Println("  Check that Super Productivity is running, then re-run.")
+			// The reason is self-describing — an unreadable index names the
+			// entity and field, a failed pull names the endpoint and code — so
+			// it carries the diagnosis rather than a guess at the cause.
+			fmt.Println("  No verdict: see the reason above. Re-run once it is resolved.")
 		} else {
 			fmt.Println("  No verdict: the two passes disagreed and nothing was seen twice.")
 			fmt.Println("  Re-run with the app idle.")

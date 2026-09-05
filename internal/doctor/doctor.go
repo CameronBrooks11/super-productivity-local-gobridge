@@ -35,6 +35,7 @@ func Run(args []string) int {
 	asJSON := false
 	wantHelp := false
 	var bad string
+	badSeen := false
 
 	for _, arg := range args {
 		switch arg {
@@ -49,8 +50,10 @@ func Run(args []string) int {
 			// ran a shallow check and still printed "All checks passed", so the
 			// user believed the integrity check had run. Keep the first one:
 			// naming the last sends the user round the loop once per typo.
-			if bad == "" {
-				bad = arg
+			// badSeen is separate from bad so that an argument which *is* the
+			// empty string — `doctor "$UNSET_VAR"` — is still reported.
+			if !badSeen {
+				bad, badSeen = arg, true
 			}
 		}
 	}
@@ -60,7 +63,7 @@ func Run(args []string) int {
 	if asJSON {
 		helpOut = os.Stderr
 	}
-	if bad != "" {
+	if badSeen {
 		fmt.Fprintf(os.Stderr, "Error: unexpected argument '%s'\n", bad)
 		usage(os.Stderr)
 		return 2

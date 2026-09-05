@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `doctor --deep` treats a missing or malformed index field as an error naming
+  the field, rather than as an empty index. Reading one as zero references
+  turned every task it owned into an orphan, reporting a healthy store as
+  corrupt — and deterministically, so it survived both confirmation passes
+  (#33)
+
 - `--source archived` needing `--include-done` is now documented in CLI help,
   the `list_tasks` MCP tool description, and the operations reference. SP
   applies the done filter to the archived pool whatever a task's `isDone`

@@ -168,6 +168,15 @@ alongside it.
 writes the error and help to stderr, leaving stdout empty rather than
 contaminating the JSON stream.
 
+The index fields are checked the same way. `project.taskIds`,
+`project.backlogTaskIds`, `tag.taskIds` and `task.subTaskIds` must each be
+present and hold a list of ids; a missing or malformed one is an error naming
+the field, not an empty index. Reading a missing index as "this project
+references nothing" would turn every task it owns into an orphan — a healthy
+store reported as corrupt — and because that result is deterministic it would
+survive both confirmation passes and be reported as confirmed. An empty list is
+legal: a project with no tasks is normal.
+
 If any of the four pulls returns something that is not a list — `data: null`, an
 empty body, a non-JSON payload — the check reports an error naming that endpoint
 and exits 1 rather than reading it as "zero entities". Treating a degenerate

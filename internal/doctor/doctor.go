@@ -47,14 +47,17 @@ func Run(args []string) int {
 		case "doctor":
 			// main.go forwards os.Args[1:], so the subcommand word arrives as
 			// args[0]. Only tolerate it there: `doctor --deep doctor` is a typo.
-			if i != 0 {
+			if i != 0 && bad == "" {
 				bad = arg
 			}
 		default:
 			// Ignoring an unrecognised argument silently meant `doctor deep`
 			// ran a shallow check and still printed "All checks passed", so the
-			// user believed the integrity check had run.
-			bad = arg
+			// user believed the integrity check had run. Keep the first one:
+			// naming the last sends the user round the loop once per typo.
+			if bad == "" {
+				bad = arg
+			}
 		}
 	}
 

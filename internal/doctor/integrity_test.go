@@ -19,24 +19,39 @@ type storeFixture struct {
 	tags     []map[string]any
 }
 
-func task(id string, subTaskIDs ...string) map[string]any {
-	t := map[string]any{"id": id, "title": id}
-	if len(subTaskIDs) > 0 {
-		ids := make([]any, len(subTaskIDs))
-		for i, s := range subTaskIDs {
-			ids[i] = s
-		}
-		t["subTaskIds"] = ids
-	}
-	return t
-}
-
-func withIDs(key string, ids ...string) map[string]any {
+// anyIDs mirrors how a decoded JSON array of ids arrives.
+func anyIDs(ids ...string) []any {
 	arr := make([]any, len(ids))
 	for i, s := range ids {
 		arr[i] = s
 	}
-	return map[string]any{"id": "x", "title": "x", key: arr}
+	return arr
+}
+
+// The fixtures below mirror what SP 18.10.0 actually returns: every index field
+// is present as a list on every object, empty rather than omitted. Fixtures that
+// omitted them were not just unrealistic, they hid the guard this file tests.
+
+func task(id string, subTaskIDs ...string) map[string]any {
+	return map[string]any{"id": id, "title": id, "subTaskIds": anyIDs(subTaskIDs...)}
+}
+
+func project(taskIDs ...string) map[string]any {
+	return map[string]any{
+		"id": "p1", "title": "p1",
+		"taskIds":        anyIDs(taskIDs...),
+		"backlogTaskIds": anyIDs(),
+	}
+}
+
+func tag(taskIDs ...string) map[string]any {
+	return map[string]any{"id": "g1", "title": "g1", "taskIds": anyIDs(taskIDs...)}
+}
+
+// withIDs builds an object carrying exactly one index field, for the cases that
+// deliberately exercise a malformed or incomplete response.
+func withIDs(key string, ids ...string) map[string]any {
+	return map[string]any{"id": "x", "title": "x", key: anyIDs(ids...)}
 }
 
 func newStoreServer(t *testing.T, f storeFixture) *httptest.Server {
@@ -81,7 +96,7 @@ func check(t *testing.T, f storeFixture) IntegrityReport {
 func TestIntegrity_CleanStore(t *testing.T) {
 	r := check(t, storeFixture{
 		active:   []map[string]any{task("t1"), task("t2")},
-		projects: []map[string]any{withIDs("taskIds", "t1", "t2")},
+		projects: []map[string]any{project("t1", "t2")},
 	})
 	if !r.Clean() {
 		t.Fatalf("expected clean, got dangling=%v orphaned=%v", r.Dangling, r.Orphaned)
@@ -98,7 +113,7 @@ func TestIntegrity_ArchivedTasksAreNotOrphans(t *testing.T) {
 	r := check(t, storeFixture{
 		active:   []map[string]any{task("t1")},
 		archived: []map[string]any{task("a1"), task("a2")},
-		projects: []map[string]any{withIDs("taskIds", "t1")},
+		projects: []map[string]any{project("t1")},
 	})
 	if !r.Clean() {
 		t.Fatalf("archived tasks must not be orphans: dangling=%v orphaned=%v", r.Dangling, r.Orphaned)
@@ -113,7 +128,7 @@ func TestIntegrity_ReferenceIntoArchiveIsNotDangling(t *testing.T) {
 	r := check(t, storeFixture{
 		active:   []map[string]any{task("t1")},
 		archived: []map[string]any{task("a1")},
-		projects: []map[string]any{withIDs("taskIds", "t1", "a1")},
+		projects: []map[string]any{project("t1", "a1")},
 	})
 	if len(r.Dangling) != 0 {
 		t.Fatalf("expected no dangling, got %v", r.Dangling)
@@ -124,7 +139,7 @@ func TestIntegrity_ReferenceIntoArchiveIsNotDangling(t *testing.T) {
 func TestIntegrity_DetectsDanglingReferences(t *testing.T) {
 	r := check(t, storeFixture{
 		active:   []map[string]any{task("t1")},
-		projects: []map[string]any{withIDs("taskIds", "t1", "gone1", "gone2")},
+		projects: []map[string]any{project("t1", "gone1", "gone2")},
 	})
 	if len(r.Dangling) != 2 {
 		t.Fatalf("expected 2 dangling, got %v", r.Dangling)
@@ -140,7 +155,7 @@ func TestIntegrity_DetectsDanglingReferences(t *testing.T) {
 func TestIntegrity_DetectsOrphanedActiveTask(t *testing.T) {
 	r := check(t, storeFixture{
 		active:   []map[string]any{task("t1"), task("stray")},
-		projects: []map[string]any{withIDs("taskIds", "t1")},
+		projects: []map[string]any{project("t1")},
 	})
 	if len(r.Orphaned) != 1 || r.Orphaned[0] != "stray" {
 		t.Fatalf("expected orphan 'stray', got %v", r.Orphaned)
@@ -150,8 +165,8 @@ func TestIntegrity_DetectsOrphanedActiveTask(t *testing.T) {
 func TestIntegrity_SubtasksAndTagsCountAsReferences(t *testing.T) {
 	r := check(t, storeFixture{
 		active:   []map[string]any{task("parent", "sub1"), task("sub1"), task("tagged")},
-		projects: []map[string]any{withIDs("taskIds", "parent")},
-		tags:     []map[string]any{withIDs("taskIds", "tagged")},
+		projects: []map[string]any{project("parent")},
+		tags:     []map[string]any{tag("tagged")},
 	})
 	if !r.Clean() {
 		t.Fatalf("expected clean, got dangling=%v orphaned=%v", r.Dangling, r.Orphaned)
@@ -213,7 +228,7 @@ func runWithStore(t *testing.T, f storeFixture, args ...string) int {
 func TestRun_JSONReturnsThreeWhenStoreInconsistent(t *testing.T) {
 	code := runWithStore(t, storeFixture{
 		active:   []map[string]any{task("t1")},
-		projects: []map[string]any{withIDs("taskIds", "t1", "GHOST")},
+		projects: []map[string]any{project("t1", "GHOST")},
 	}, "doctor", "--json")
 	if code != 3 {
 		t.Fatalf("inconsistent store via --json must exit 3, got %d", code)
@@ -223,7 +238,7 @@ func TestRun_JSONReturnsThreeWhenStoreInconsistent(t *testing.T) {
 func TestRun_JSONReturnsZeroWhenClean(t *testing.T) {
 	code := runWithStore(t, storeFixture{
 		active:   []map[string]any{task("t1")},
-		projects: []map[string]any{withIDs("taskIds", "t1")},
+		projects: []map[string]any{project("t1")},
 	}, "doctor", "--json")
 	if code != 0 {
 		t.Fatalf("clean store via --json must exit 0, got %d", code)
@@ -342,7 +357,7 @@ func TestIntegrity_DetectsTaskInBothPools(t *testing.T) {
 	r := check(t, storeFixture{
 		active:   []map[string]any{task("t1"), task("both")},
 		archived: []map[string]any{task("both")},
-		projects: []map[string]any{withIDs("taskIds", "t1", "both")},
+		projects: []map[string]any{project("t1", "both")},
 	})
 	if len(r.Duplicated) != 1 || r.Duplicated[0] != "both" {
 		t.Fatalf("expected 'both' flagged as duplicated, got %v", r.Duplicated)
@@ -406,10 +421,10 @@ func racingServer(t *testing.T) *httptest.Server {
 		case r.URL.Path == "/projects":
 			round++
 			if round == 1 {
-				enc([]map[string]any{withIDs("taskIds", "t1", "RACE")}) // transient
+				enc([]map[string]any{project("t1", "RACE")}) // transient
 				return
 			}
-			enc([]map[string]any{withIDs("taskIds", "t1")})
+			enc([]map[string]any{project("t1")})
 		default:
 			enc([]map[string]any{})
 		}
@@ -438,7 +453,7 @@ func TestConfirmed_TransientAnomalyIsDropped(t *testing.T) {
 func TestConfirmed_PersistentAnomalyIsKept(t *testing.T) {
 	srv := newStoreServer(t, storeFixture{
 		active:   []map[string]any{task("t1")},
-		projects: []map[string]any{withIDs("taskIds", "t1", "GHOST")},
+		projects: []map[string]any{project("t1", "GHOST")},
 	})
 	defer srv.Close()
 	r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL))
@@ -461,7 +476,7 @@ func TestConfirmed_CleanStoreSkipsSecondPass(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/projects" {
-			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{withIDs("taskIds", "t1")}})
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{project("t1")}})
 			return
 		}
 		if r.URL.Path == "/tasks" && r.URL.Query().Get("source") != "archived" {
@@ -565,7 +580,7 @@ func shiftingServer(t *testing.T) *httptest.Server {
 			if round == 1 {
 				ghost = "GHOST1"
 			}
-			enc([]map[string]any{withIDs("taskIds", "t1", ghost)})
+			enc([]map[string]any{project("t1", ghost)})
 		default:
 			enc([]map[string]any{})
 		}
@@ -615,7 +630,7 @@ func TestConfirmed_FailedSecondPassIsUnconfirmed(t *testing.T) {
 		case r.URL.Path == "/tasks":
 			enc([]map[string]any{task("t1")})
 		case r.URL.Path == "/projects":
-			enc([]map[string]any{withIDs("taskIds", "t1", "GHOST")})
+			enc([]map[string]any{project("t1", "GHOST")})
 		default:
 			enc([]map[string]any{})
 		}
@@ -672,7 +687,7 @@ func mixedServer(t *testing.T) *httptest.Server {
 			if round == 2 {
 				ids = append(ids, "LATE") // LATE appears once
 			}
-			enc([]map[string]any{withIDs("taskIds", ids...)})
+			enc([]map[string]any{project(ids...)})
 		default:
 			enc([]map[string]any{})
 		}
@@ -743,7 +758,7 @@ func TestConfirmed_FailedSecondPassConfirmsNothing(t *testing.T) {
 		case r.URL.Path == "/tasks":
 			enc([]map[string]any{task("t1")})
 		case r.URL.Path == "/projects":
-			enc([]map[string]any{withIDs("taskIds", "t1", "GHOST")})
+			enc([]map[string]any{project("t1", "GHOST")})
 		default:
 			enc([]map[string]any{})
 		}
@@ -781,7 +796,7 @@ func TestConfirmed_FailedSecondPassCarriesTheReason(t *testing.T) {
 		case r.URL.Path == "/tasks":
 			enc([]map[string]any{task("t1")})
 		case r.URL.Path == "/projects":
-			enc([]map[string]any{withIDs("taskIds", "t1", "GHOST")})
+			enc([]map[string]any{project("t1", "GHOST")})
 		default:
 			enc([]map[string]any{})
 		}
@@ -842,5 +857,90 @@ func TestConfirmed_FailedSecondPassDeduplicatesUnresolved(t *testing.T) {
 	}
 	if len(r.Unresolved) != 1 || r.Unresolved[0] != "both" {
 		t.Fatalf("an id appearing in two categories must be listed once, got %v", r.Unresolved)
+	}
+}
+
+// --- Index-side degenerate payloads (#33) ---
+//
+// Reading a missing index field as "this project references nothing" turns
+// every task it owns into an orphan. That is a healthy store reported as
+// corrupt, with advice not to restore a backup — and unlike a race it is
+// deterministic, so it survives both passes and is reported as *confirmed*.
+
+func serverWithProjects(t *testing.T, projectsJSON string) *httptest.Server {
+	t.Helper()
+	return rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/projects":
+			w.Write([]byte(`{"ok":true,"data":` + projectsJSON + `}`))
+		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+		case r.URL.Path == "/tasks":
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{task("t1"), task("t2")}})
+		default:
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+		}
+	})
+}
+
+func TestIntegrity_MissingIndexFieldIsAnError(t *testing.T) {
+	// The reviewer's exact repro: a project with no taskIds at all.
+	srv := serverWithProjects(t, `[{"id":"p1","title":"Inbox"}]`)
+	_, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err == nil {
+		t.Fatal("a missing index field must be an error, not zero references")
+	}
+	if !strings.Contains(err.Error(), "taskIds") || !strings.Contains(err.Error(), "/projects") {
+		t.Fatalf("error should name the field and endpoint, got: %v", err)
+	}
+}
+
+func TestIntegrity_NullIndexFieldIsAnError(t *testing.T) {
+	srv := serverWithProjects(t, `[{"id":"p1","taskIds":null,"backlogTaskIds":[]}]`)
+	if _, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL)); err == nil {
+		t.Fatal("a null index field must be an error")
+	}
+}
+
+func TestIntegrity_NonStringIndexEntryIsAnError(t *testing.T) {
+	srv := serverWithProjects(t, `[{"id":"p1","taskIds":["t1",42],"backlogTaskIds":[]}]`)
+	if _, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL)); err == nil {
+		t.Fatal("a non-string id must be an error")
+	}
+}
+
+// An empty index is legal: a project with no tasks is normal.
+func TestIntegrity_EmptyIndexFieldIsValid(t *testing.T) {
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/projects" {
+			w.Write([]byte(`{"ok":true,"data":[{"id":"p1","taskIds":[],"backlogTaskIds":[]}]}`))
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": []map[string]any{}})
+	})
+	r, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("an empty index is normal, got: %v", err)
+	}
+	if !r.Clean() {
+		t.Fatalf("an empty store is consistent, got %+v", r)
+	}
+}
+
+// backlogTaskIds is required too — a rename there would otherwise hide every
+// backlog task from the reference set.
+func TestIntegrity_MissingBacklogFieldIsAnError(t *testing.T) {
+	srv := serverWithProjects(t, `[{"id":"p1","taskIds":["t1","t2"]}]`)
+	if _, err := CheckIntegrity(context.Background(), bridge.NewClient(srv.URL)); err == nil {
+		t.Fatal("a missing backlogTaskIds must be an error")
+	}
+}
+
+func TestRun_ReportsFirstBadArgument(t *testing.T) {
+	// Naming the last one sends the user round the loop once per typo.
+	if code := Run([]string{"doctor", "--nope", "--alsonope"}); code != 2 {
+		t.Fatalf("want exit 2, got %d", code)
 	}
 }

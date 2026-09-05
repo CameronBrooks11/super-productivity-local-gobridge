@@ -61,19 +61,38 @@ func idField(m map[string]any, key string) (string, bool) {
 	return v, ok && v != ""
 }
 
-// collectIDs appends every string in the named array field to dst.
-func collectIDs(dst map[string]struct{}, m map[string]any, keys ...string) {
+// collectIDs appends every string in the named array fields to dst.
+//
+// A missing or malformed index field is an error, not an empty list. Reading it
+// as "this project references nothing" turns every task it owns into an orphan
+// — a healthy store reported as corrupt, complete with advice not to restore a
+// backup. That is the same failure objectsOrError guards on the entity side,
+// and it is worse here: the result is deterministic, so it survives both
+// confirmation passes and is reported as a *confirmed* anomaly.
+//
+// Every one of these fields is present as a list on every object returned by SP
+// 18.10.0, so requiring them costs nothing today and turns a future rename into
+// a clear error instead of a false verdict. An empty list stays legal: a project
+// with no tasks is normal.
+func collectIDs(dst map[string]struct{}, m map[string]any, endpoint string, keys ...string) error {
 	for _, key := range keys {
-		arr, ok := m[key].([]any)
+		raw, present := m[key]
+		if !present {
+			return fmt.Errorf("%s: an entry is missing %q; cannot judge integrity", endpoint, key)
+		}
+		arr, ok := raw.([]any)
 		if !ok {
-			continue
+			return fmt.Errorf("%s: %q is %T, not a list; cannot judge integrity", endpoint, key, raw)
 		}
 		for _, item := range arr {
-			if s, ok := item.(string); ok && s != "" {
-				dst[s] = struct{}{}
+			id, ok := item.(string)
+			if !ok || id == "" {
+				return fmt.Errorf("%s: %q contains an entry that is not an id; cannot judge integrity", endpoint, key)
 			}
+			dst[id] = struct{}{}
 		}
 	}
+	return nil
 }
 
 // objectsOrError coerces a decoded JSON array into a slice of objects.
@@ -188,17 +207,25 @@ func CheckIntegrity(ctx context.Context, client *bridge.Client) (IntegrityReport
 
 	referenced := make(map[string]struct{})
 	for _, p := range projectList {
-		collectIDs(referenced, p, "taskIds", "backlogTaskIds")
+		if err := collectIDs(referenced, p, "/projects", "taskIds", "backlogTaskIds"); err != nil {
+			return report, err
+		}
 	}
 	for _, tag := range tagList {
-		collectIDs(referenced, tag, "taskIds")
+		if err := collectIDs(referenced, tag, "/tags", "taskIds"); err != nil {
+			return report, err
+		}
 	}
 	// Subtasks are referenced by their parent in either pool.
 	for _, t := range activeTasks {
-		collectIDs(referenced, t, "subTaskIds")
+		if err := collectIDs(referenced, t, "/tasks?source=active", "subTaskIds"); err != nil {
+			return report, err
+		}
 	}
 	for _, t := range archivedTasks {
-		collectIDs(referenced, t, "subTaskIds")
+		if err := collectIDs(referenced, t, "/tasks?source=archived", "subTaskIds"); err != nil {
+			return report, err
+		}
 	}
 	report.Referenced = len(referenced)
 

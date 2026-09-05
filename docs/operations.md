@@ -93,9 +93,52 @@ The `taskCount` in `get_status` reflects the active pool including done tasks (n
 | `UNSUPPORTED_OPERATION` | Operation exists but is not implemented |
 | `INVALID_INPUT` | Payload validation failed |
 | `TASK_NOT_FOUND` | Task ID not found |
+| `NOT_FOUND` | The route does not exist — not the same as a missing task |
 | `PROJECT_NOT_FOUND` | Project ID not found |
 | `SP_ERROR` | SP returned an error |
 | `INTERNAL_ERROR` | Unexpected bridge error |
+
+### Two kinds of 404
+
+Super Productivity answers both a missing task and a missing route with HTTP
+404, distinguishing them only in the body:
+
+```console
+$ curl -s http://127.0.0.1:3876/tasks/GHOST_ID
+{"ok":false,"error":{"code":"TASK_NOT_FOUND","message":"Task not found"}}
+
+$ curl -s http://127.0.0.1:3876/definitely-not-a-route
+{"ok":false,"error":{"code":"NOT_FOUND","message":"Route not found"}}
+```
+
+The bridge reads the body and passes SP's own code through, so `TASK_NOT_FOUND`
+means the task is genuinely absent. Earlier versions reported every 404 as
+`TASK_NOT_FOUND`, which sent anyone debugging a mistyped or removed route
+looking for a task that was never the problem.
+
+A 404 whose body is empty or not JSON — something a proxy might produce, but not
+SP — reports `SP_ERROR` rather than guessing which was missing. An HTTP error
+status carrying `{"ok":true}` is likewise reported as an error: believing the
+body over the status would turn a failed request into a success.
+
+Codes other than the table above can appear: `translateEnvelope` passes through
+whatever `error.code` Super Productivity supplies, so a future SP release could
+introduce one the bridge does not name. Consumers should branch on the codes
+they know and treat anything else as a generic failure rather than assuming the
+set is closed.
+
+**What this means for `archive`.** Its existence guard reports `TASK_NOT_FOUND`
+only when SP's 404 body is an envelope whose `error.code` is `TASK_NOT_FOUND` —
+which is what SP 18.10.0 sends. If that body ever changes shape, the guard
+reports the underlying error instead (`SP_ERROR`, say) rather than the friendly
+message below.
+
+The safety property does not depend on that wording. The archive is attempted
+only when the probe hands back the task it asked for — a JSON object whose `id`
+matches. A successful HTTP status is not sufficient on its own, because an empty
+body, a non-JSON body and `{"ok":true,"data":null}` all translate to a success
+with no data; treating any of those as "the task exists" would send the archive
+call for an id that was never confirmed.
 
 ## Intentionally Excluded
 

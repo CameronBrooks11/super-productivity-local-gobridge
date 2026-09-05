@@ -112,18 +112,66 @@ func TestClient_ListTasks_WithParams(t *testing.T) {
 	}
 }
 
+// SP answers both a missing task and a missing route with HTTP 404, and
+// distinguishes them only in the body. The client used to short-circuit on the
+// status before reading it, so every 404 became TASK_NOT_FOUND — a mistyped or
+// removed route reported "task not found" and sent whoever was debugging it
+// looking for a task that was never the problem.
 func TestClient_GetTask_NotFound(t *testing.T) {
-	ts, client := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(404)
-	})
-	defer ts.Close()
-
-	result := client.GetTask(context.Background(), "nonexistent")
-	if result.OK {
-		t.Fatal("expected error")
+	cases := []struct {
+		name       string
+		body       string
+		wantCode   string
+		wantStatus int
+	}{
+		{
+			name:       "missing task carries SP's TASK_NOT_FOUND",
+			body:       `{"ok":false,"error":{"code":"TASK_NOT_FOUND","message":"Task not found"}}`,
+			wantCode:   ErrTaskNotFound,
+			wantStatus: 404,
+		},
+		{
+			name:       "missing route carries SP's NOT_FOUND",
+			body:       `{"ok":false,"error":{"code":"NOT_FOUND","message":"Route not found"}}`,
+			wantCode:   ErrNotFound,
+			wantStatus: 404,
+		},
+		{
+			// Not something SP does, but a proxy might. We cannot tell what was
+			// missing, so claiming the task was is a guess.
+			name:       "bodyless 404 is not claimed as a missing task",
+			body:       "",
+			wantCode:   ErrSPError,
+			wantStatus: 404,
+		},
+		{
+			name:       "non-JSON 404 is not claimed as a missing task",
+			body:       "<html>404</html>",
+			wantCode:   ErrSPError,
+			wantStatus: 404,
+		},
 	}
-	if result.Error.Code != ErrTaskNotFound {
-		t.Fatalf("expected TASK_NOT_FOUND, got %s", result.Error.Code)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts, client := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(404)
+				if tc.body != "" {
+					w.Write([]byte(tc.body))
+				}
+			})
+			defer ts.Close()
+
+			result := client.GetTask(context.Background(), "nonexistent")
+			if result.OK {
+				t.Fatal("expected error")
+			}
+			if result.Error.Code != tc.wantCode {
+				t.Fatalf("expected %s, got %s (%s)", tc.wantCode, result.Error.Code, result.Error.Message)
+			}
+			if got := result.Error.Details["status_code"]; got != tc.wantStatus {
+				t.Fatalf("expected status_code %d, got %v", tc.wantStatus, got)
+			}
+		})
 	}
 }
 
@@ -458,7 +506,11 @@ func archiveServer(t *testing.T, taskExists bool) (*Client, *[]string) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/tasks/t1":
 			if !taskExists {
+				// SP's real 404 body. A bare status with no body is not what it
+				// sends, and now that the client reads the envelope to tell a
+				// missing task from a missing route, the difference matters.
 				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"ok":false,"error":{"code":"TASK_NOT_FOUND","message":"Task not found"}}`))
 				return
 			}
 			w.Write([]byte(`{"ok":true,"data":{"id":"t1","title":"t1"}}`))
@@ -490,8 +542,8 @@ func TestService_TaskArchive_MissingTaskReportsNotFound(t *testing.T) {
 	if result.Error.Code != ErrTaskNotFound {
 		t.Fatalf("expected %s, got %s", ErrTaskNotFound, result.Error.Code)
 	}
-	// The message must say why; the client's generic "Resource not found." left
-	// the caller guessing whether the task or the route was missing.
+	// The message must say why: SP's own "Task not found" says what is missing
+	// but not what the bridge was doing, or whether anything changed.
 	if !strings.Contains(result.Error.Message, "not in the active list") {
 		t.Fatalf("message should say why, got: %s", result.Error.Message)
 	}
@@ -596,5 +648,179 @@ func TestService_TaskArchive_ForwardsOriginalErrorDetails(t *testing.T) {
 	}
 	if _, ok := result.Error.Details["sp_details"]; !ok {
 		t.Fatalf("sp_details must survive, got %v", result.Error.Details)
+	}
+}
+
+// The reason #37 mattered: the archive guard keys on TASK_NOT_FOUND, so while
+// every 404 was flattened to that code, a probe route that stopped resolving
+// would have been reported as a missing task — turning a working archive into a
+// confidently wrong error.
+func TestService_TaskArchive_RouteNotFoundIsNotReportedAsMissingTask(t *testing.T) {
+	var archived bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			// The GET route itself is gone, not the task.
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"ok":false,"error":{"code":"NOT_FOUND","message":"Route not found"}}`))
+			return
+		}
+		archived = true
+		w.Write([]byte(`{"ok":true,"data":{"id":"t1","archived":true}}`))
+	}))
+	defer ts.Close()
+
+	result := archive(t, NewClient(ts.URL), "t1")
+	if result.OK {
+		t.Fatal("expected failure")
+	}
+	if result.Error.Code == ErrTaskNotFound {
+		t.Fatal("a missing route must not be reported as a missing task")
+	}
+	if result.Error.Code != ErrNotFound {
+		t.Fatalf("expected %s, got %s", ErrNotFound, result.Error.Code)
+	}
+	if !strings.Contains(result.Error.Message, "Route not found") {
+		t.Fatalf("SP's own message should survive, got: %s", result.Error.Message)
+	}
+	// Still fails closed: the dangerous POST is not sent on an unclear read.
+	if archived {
+		t.Fatal("the archive POST must not be sent when the existence check is inconclusive")
+	}
+}
+
+// An HTTP error status carrying ok:true is contradictory. Believing the body
+// would report a failed request as a success — and for task.archive, which
+// reads a task to decide whether it exists before writing, that means treating
+// a 404 as "it exists" and sending the call that crashed SP's renderer.
+func TestClient_SuccessEnvelopeOnErrorStatusIsAnError(t *testing.T) {
+	for _, status := range []int{404, 400, 500} {
+		ts, client := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			w.Write([]byte(`{"ok":true,"data":{"id":"t1"}}`))
+		})
+		result := client.GetTask(context.Background(), "t1")
+		ts.Close()
+		if result.OK {
+			t.Errorf("status %d with ok:true must not be a success", status)
+			continue
+		}
+		if result.Error.Code != ErrSPError {
+			t.Errorf("status %d: expected %s, got %s", status, ErrSPError, result.Error.Code)
+		}
+		if got := result.Error.Details["status_code"]; got != status {
+			t.Errorf("status %d: details should carry the status, got %v", status, got)
+		}
+	}
+}
+
+// The guard must fail closed on a contradictory probe response: no archive POST.
+func TestService_TaskArchive_ContradictoryProbeDoesNotArchive(t *testing.T) {
+	var posted bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"ok":true,"data":{"id":"t1"}}`)) // 404 but claims success
+			return
+		}
+		posted = true
+		w.Write([]byte(`{"ok":true,"data":{"id":"t1","archived":true}}`))
+	}))
+	defer ts.Close()
+
+	result := archive(t, NewClient(ts.URL), "t1")
+	if posted {
+		t.Fatal("a contradictory existence probe must not lead to an archive POST")
+	}
+	if result.OK {
+		t.Fatal("expected failure")
+	}
+}
+
+// A 2xx carrying ok:true is the normal path and must keep working.
+func TestClient_SuccessEnvelopeOnOKStatusStillSucceeds(t *testing.T) {
+	ts, client := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true,"data":{"id":"t1","title":"t1"}}`))
+	})
+	defer ts.Close()
+	if result := client.GetTask(context.Background(), "t1"); !result.OK {
+		t.Fatalf("a 200 with ok:true must succeed, got %+v", result.Error)
+	}
+}
+
+// A successful status does not confirm a task. An empty body, a non-JSON body
+// and {"ok":true,"data":null} all translate to Success(nil), and archiving on
+// the strength of one would send the POST for an id never confirmed — the same
+// call the guard exists to prevent.
+func TestService_TaskArchive_UnconfirmedProbeDoesNotArchive(t *testing.T) {
+	cases := map[string]string{
+		"empty body":         "",
+		"non-JSON body":      "<html>ok</html>",
+		"data is null":       `{"ok":true,"data":null}`,
+		"wrong task id":      `{"ok":true,"data":{"id":"someone-else","title":"x"}}`,
+		"data not an object": `{"ok":true,"data":[{"id":"t1"}]}`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			var posted bool
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					w.WriteHeader(http.StatusOK)
+					if body != "" {
+						w.Write([]byte(body))
+					}
+					return
+				}
+				posted = true
+				w.Write([]byte(`{"ok":true,"data":{"id":"t1","archived":true}}`))
+			}))
+			defer ts.Close()
+
+			result := archive(t, NewClient(ts.URL), "t1")
+			if posted {
+				t.Fatal("the archive POST must not be sent when the probe did not confirm the task")
+			}
+			if result.OK {
+				t.Fatal("expected failure")
+			}
+			if !strings.Contains(result.Error.Message, "Could not confirm") {
+				t.Fatalf("message should say the task was unconfirmed, got: %s", result.Error.Message)
+			}
+			// Collapsing every shape to one contentless error made a proxy's
+			// HTML interstitial and SP returning a different task's id look
+			// identical, so neither could be diagnosed without a manual repro.
+			desc, _ := result.Error.Details["probe_returned"].(string)
+			if desc == "" {
+				t.Fatal("the error should record what the probe returned")
+			}
+			if name == "wrong task id" && !strings.Contains(desc, "someone-else") {
+				t.Fatalf("a mismatched id is the signal worth surfacing, got %q", desc)
+			}
+		})
+	}
+}
+
+// The normal path: the probe returns the task, so the archive proceeds.
+func TestService_TaskArchive_ConfirmedProbeArchives(t *testing.T) {
+	var posted bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			w.Write([]byte(`{"ok":true,"data":{"id":"t1","title":"real"}}`))
+			return
+		}
+		posted = true
+		w.Write([]byte(`{"ok":true,"data":{"id":"t1","archived":true}}`))
+	}))
+	defer ts.Close()
+
+	if result := archive(t, NewClient(ts.URL), "t1"); !result.OK {
+		t.Fatalf("a confirmed task must still archive, got %+v", result.Error)
+	}
+	if !posted {
+		t.Fatal("expected the archive POST")
 	}
 }

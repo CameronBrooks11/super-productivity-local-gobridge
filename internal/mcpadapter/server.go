@@ -229,7 +229,10 @@ func (s *Server) registerTools() {
 		mutatingAnnotations)
 
 	s.addTool("archive_task", bridge.OpTaskArchive,
-		"Archive a task.",
+		"Archive a task. Returns TASK_NOT_FOUND if the id is not in the active list, "+
+			"including when the task is already archived. Super Productivity's own "+
+			"archive endpoint reports success for ids that do not exist; the bridge "+
+			"checks first so a mistaken id is not reported as a completed archive.",
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{

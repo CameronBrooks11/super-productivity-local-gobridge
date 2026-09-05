@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -436,5 +437,164 @@ func TestService_BridgeHealth_OK(t *testing.T) {
 	}
 	if data["status"] == nil {
 		t.Fatal("expected status key")
+	}
+}
+
+// --- task.archive existence check (#27) ---
+//
+// SP's archive route reports success for ids that never existed, while
+// get/update/start/restore all return TASK_NOT_FOUND. This was the one
+// operation where a mistaken or invented id produced a confident success, so
+// nothing signalled that the archive had not happened.
+
+// archiveServer records which paths were hit, so a test can assert that the
+// archive POST was never sent.
+func archiveServer(t *testing.T, taskExists bool) (*Client, *[]string) {
+	t.Helper()
+	var hits []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits = append(hits, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/tasks/t1":
+			if !taskExists {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Write([]byte(`{"ok":true,"data":{"id":"t1","title":"t1"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/tasks/t1/archive":
+			// What SP does even for ids that do not exist.
+			w.Write([]byte(`{"ok":true,"data":{"id":"t1","archived":true}}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(ts.Close)
+	return NewClient(ts.URL), &hits
+}
+
+func archive(t *testing.T, client *Client, id string) Result {
+	t.Helper()
+	return NewService(client).Execute(context.Background(), Request{
+		Operation: OpTaskArchive,
+		Payload:   map[string]json.RawMessage{"id": json.RawMessage(`"` + id + `"`)},
+	})
+}
+
+func TestService_TaskArchive_MissingTaskReportsNotFound(t *testing.T) {
+	client, hits := archiveServer(t, false)
+	result := archive(t, client, "t1")
+	if result.OK {
+		t.Fatal("archiving a task that does not exist must not report success")
+	}
+	if result.Error.Code != ErrTaskNotFound {
+		t.Fatalf("expected %s, got %s", ErrTaskNotFound, result.Error.Code)
+	}
+	// The message must say why; the client's generic "Resource not found." left
+	// the caller guessing whether the task or the route was missing.
+	if !strings.Contains(result.Error.Message, "not in the active list") {
+		t.Fatalf("message should say why, got: %s", result.Error.Message)
+	}
+	for _, hit := range *hits {
+		if strings.Contains(hit, "/archive") {
+			t.Fatalf("the archive POST must not be sent for a missing task, hits: %v", *hits)
+		}
+	}
+}
+
+func TestService_TaskArchive_ExistingTaskStillArchives(t *testing.T) {
+	client, hits := archiveServer(t, true)
+	result := archive(t, client, "t1")
+	if !result.OK {
+		t.Fatalf("archiving an existing task must still work, got %+v", result.Error)
+	}
+	var sawArchive bool
+	for _, hit := range *hits {
+		if hit == "POST /tasks/t1/archive" {
+			sawArchive = true
+		}
+	}
+	if !sawArchive {
+		t.Fatalf("expected the archive POST, hits: %v", *hits)
+	}
+}
+
+// A transport failure is not a missing task. Recasting it would tell the user
+// their task does not exist when SP is simply down.
+func TestService_TaskArchive_TransportErrorIsNotRecast(t *testing.T) {
+	client := NewClient("http://127.0.0.1:1") // nothing listening
+	result := archive(t, client, "t1")
+	if result.OK {
+		t.Fatal("expected failure")
+	}
+	if result.Error.Code == ErrTaskNotFound {
+		t.Fatalf("an unreachable SP must not be reported as a missing task, got %s", result.Error.Code)
+	}
+	if result.Error.Code != ErrSPUnavailable {
+		t.Fatalf("expected %s, got %s", ErrSPUnavailable, result.Error.Code)
+	}
+}
+
+// The guard must not weaken the existing payload validation.
+func TestService_TaskArchive_RejectsExtraFields(t *testing.T) {
+	client := NewClient("http://127.0.0.1:1")
+	result := NewService(client).Execute(context.Background(), Request{
+		Operation: OpTaskArchive,
+		Payload: map[string]json.RawMessage{
+			"id":    json.RawMessage(`"t1"`),
+			"title": json.RawMessage(`"nope"`),
+		},
+	})
+	if result.OK || result.Error.Code != ErrInvalidInput {
+		t.Fatalf("expected %s, got %+v", ErrInvalidInput, result.Error)
+	}
+}
+
+// Every other TASK_NOT_FOUND carries status_code in details; archive must not
+// be the one route whose envelope omits it, since the MCP adapter serializes
+// details unconditionally and hosts branch on it.
+func TestService_TaskArchive_NotFoundCarriesDetails(t *testing.T) {
+	client, _ := archiveServer(t, false)
+	result := archive(t, client, "t1")
+	if result.Error == nil || result.Error.Details == nil {
+		t.Fatalf("expected details on the error, got %+v", result.Error)
+	}
+	if got := result.Error.Details["status_code"]; got != 404 {
+		t.Fatalf("expected status_code 404, got %v", got)
+	}
+}
+
+// The details are forwarded from the underlying read rather than fabricated, so
+// an envelope-derived not-found keeps its own status code and sp_details
+// instead of being relabelled 404.
+func TestService_TaskArchive_ForwardsOriginalErrorDetails(t *testing.T) {
+	var unexpected string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			// A 200 carrying SP's error envelope, not a bare 404.
+			w.Write([]byte(`{"ok":false,"error":{"code":"TASK_NOT_FOUND","message":"Task not found","details":{"why":"gone"}}}`))
+			return
+		}
+		// t.Fatalf here would only Goexit this handler goroutine, dropping the
+		// connection and surfacing downstream as a confusing SP_UNAVAILABLE.
+		// Record it and assert on the main goroutine instead.
+		unexpected = r.Method + " " + r.URL.Path
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	result := archive(t, NewClient(ts.URL), "t1")
+	if unexpected != "" {
+		t.Fatalf("archive POST must not be sent, got %s", unexpected)
+	}
+	if result.OK || result.Error.Code != ErrTaskNotFound {
+		t.Fatalf("expected %s, got %+v", ErrTaskNotFound, result.Error)
+	}
+	if got := result.Error.Details["status_code"]; got != 200 {
+		t.Fatalf("status code must come from the response, not be fabricated as 404; got %v", got)
+	}
+	if _, ok := result.Error.Details["sp_details"]; !ok {
+		t.Fatalf("sp_details must survive, got %v", result.Error.Details)
 	}
 }

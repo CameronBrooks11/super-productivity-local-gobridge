@@ -252,3 +252,55 @@ usually intact.
 from the same in-memory state, so a backup taken during an inconsistency
 captures it, and restoring one can turn a recoverable glitch into real data
 loss.
+
+## Archiving and existence
+
+`archive_task` / `tasks archive` checks that the task is in the active list
+before archiving it, and returns `TASK_NOT_FOUND` when it is not:
+
+```console
+$ sp-local-bridge tasks archive GHOST_ID
+Error [TASK_NOT_FOUND]: Task is not in the active list, so it was not archived now. It may already be archived, or never have existed.
+$ echo $?
+1
+```
+
+This is a bridge-side guard. Super Productivity's own endpoint answers
+`{"ok":true,"data":{"id":"...","archived":true}}` for ids that never existed, unlike `get`,
+`update`, `start` and `restore`, which all return `TASK_NOT_FOUND`.
+
+::: danger Do not reproduce this against a real store
+Posting to the archive route with an id that does not exist is what crashed
+Super Productivity's renderer and left its in-memory store inconsistent — see
+the note at the end of this section. There is deliberately no copy-pasteable
+command here.
+
+To confirm the upstream behaviour, use a throwaway profile:
+
+```bash
+superproductivity --user-data-dir=/tmp/sp-scratch
+```
+
+The API port is a hardcoded 3876 and Super Productivity takes a single-instance
+lock, so the real app must be closed first.
+:::
+
+The guard matters most for automation, where a mistaken or invented id would
+otherwise produce a confident success and be reported as a completed archive —
+the one operation that gave no signal to correct.
+
+Note that an **already-archived** task also reports `TASK_NOT_FOUND`, since it
+is no longer in the active list. `GET /tasks/:id` resolves the active pool only
+— verified against SP 18.10.0, where a task confirmed present in the archive
+returns 404 from that route. Use `--source archived --include-done` to check
+whether it is already there before treating this as a failure.
+
+The guard narrows the problem but does not eliminate it. If a task is archived
+or deleted by someone else between the check and the archive call, the call
+still goes out against an id no longer in the active pool. That case is not
+harmless — it is the one that crashed Super Productivity's renderer and left its
+in-memory store inconsistent — so closing the window needs a fix upstream. See
+the reports in the project's issue tracker.
+
+A transport failure is never recast as a missing task: if Super Productivity is
+unreachable, the error is `SP_UNAVAILABLE`.

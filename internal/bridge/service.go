@@ -218,6 +218,42 @@ func handleTaskArchive(ctx context.Context, client *Client, payload map[string]j
 	if r != nil {
 		return *r
 	}
+
+	// SP's archive route answers {"ok":true,"data":{"id":...,"archived":true}}
+	// for ids that never existed, unlike get, update, start and restore, which
+	// all return TASK_NOT_FOUND. Passing that through reported a completed
+	// archive for a mistaken or invented id, with nothing to signal otherwise.
+	//
+	// GET is the right probe: it resolves only the active pool. Verified against
+	// SP 18.10.0 — a task confirmed present in the archive returns 404
+	// TASK_NOT_FOUND from GET /tasks/:id. That is also why an already-archived
+	// task reports not-found here.
+	//
+	// This narrows the window but does not close it. If the task is archived or
+	// deleted between the GET and the POST, the POST still goes out against an
+	// id no longer in the active entity map — and that is not benign: doing
+	// exactly that dispatched an action carrying no title, threw in SP's
+	// is-blank-task, killed an NgRx effect subscription and left its renderer
+	// store missing 223 of 277 task entities (see #27). Closing the window needs
+	// a fix on SP's side; the guard removes the common case, not the race.
+	if existing := client.GetTask(ctx, id); !existing.OK {
+		if existing.Error != nil && existing.Error.Code == ErrTaskNotFound {
+			// Restate it in terms of what was attempted. The client's generic
+			// "Resource not found." leaves the caller guessing whether the task
+			// or the route was missing. It does not assert that nothing was
+			// archived: a timed-out or cancelled archive can succeed
+			// server-side, and a retry would then land here. Forward
+			// the original details rather than asserting a status code, which
+			// would fabricate one for an envelope-derived not-found.
+			return Failure(ErrTaskNotFound,
+				"Task is not in the active list, so it was not archived now. "+
+					"It may already be archived, or never have existed.",
+				existing.Error.Details)
+		}
+		// Anything else — SP unreachable, a timeout — passes through unchanged
+		// rather than being recast as a missing task.
+		return existing
+	}
 	return client.ArchiveTask(ctx, id)
 }
 

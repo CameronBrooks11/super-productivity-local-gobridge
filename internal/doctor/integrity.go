@@ -31,6 +31,11 @@ type IntegrityReport struct {
 	// Unconfirmed marks a report the two passes could not reconcile — either
 	// Unresolved is non-empty, or the confirmation pass could not run.
 	Unconfirmed bool
+	// UnconfirmedReason carries the confirmation pass's error when it failed.
+	// Without it the output blames concurrent editing for what was actually SP
+	// becoming unreachable — the worst moment to misdiagnose, since a store
+	// that just went down is exactly when anomalies matter.
+	UnconfirmedReason string
 }
 
 // Clean reports whether the store is self-consistent.
@@ -258,10 +263,11 @@ func CheckIntegrityConfirmed(ctx context.Context, client *bridge.Client) (Integr
 		// here survived two passes, and leaving them in would let the caller
 		// treat a single observation as a verdict.
 		unresolved := IntegrityReport{
-			ActiveTasks:   first.ActiveTasks,
-			ArchivedTasks: first.ArchivedTasks,
-			Referenced:    first.Referenced,
-			Unconfirmed:   true,
+			ActiveTasks:       first.ActiveTasks,
+			ArchivedTasks:     first.ArchivedTasks,
+			Referenced:        first.Referenced,
+			Unconfirmed:       true,
+			UnconfirmedReason: err.Error(),
 		}
 		for _, group := range [][]string{first.Dangling, first.Orphaned, first.Duplicated} {
 			unresolved.Unresolved = append(unresolved.Unresolved, group...)
@@ -342,10 +348,15 @@ func printIntegrity(report IntegrityReport) bool {
 	}
 	if len(report.Unresolved) > 0 {
 		fmt.Printf("  seen in one pass    : %d  %s\n", len(report.Unresolved), sample(report.Unresolved, 3))
-		fmt.Println("    Flagged by only one of the two passes, so most likely the store")
-		fmt.Println("    being edited while the check ran.")
-	} else if report.Unconfirmed {
-		fmt.Println("  NOTE: the confirmation pass could not run.")
+		if report.UnconfirmedReason != "" {
+			fmt.Printf("    The confirmation pass failed (%s), so these were seen only\n", report.UnconfirmedReason)
+			fmt.Println("    once. They are not necessarily transient.")
+		} else {
+			fmt.Println("    Flagged by only one of the two passes, so most likely the store")
+			fmt.Println("    being edited while the check ran.")
+		}
+	} else if report.UnconfirmedReason != "" {
+		fmt.Printf("  NOTE: the confirmation pass could not run (%s).\n", report.UnconfirmedReason)
 	}
 
 	if report.HasConfirmedAnomalies() {
@@ -357,8 +368,13 @@ func printIntegrity(report IntegrityReport) bool {
 	}
 	if report.Unconfirmed {
 		fmt.Println()
-		fmt.Println("  No verdict: the two passes disagreed and nothing was seen twice.")
-		fmt.Println("  Re-run with the app idle.")
+		if report.UnconfirmedReason != "" {
+			fmt.Println("  No verdict: the confirmation pass did not complete.")
+			fmt.Println("  Check that Super Productivity is running, then re-run.")
+		} else {
+			fmt.Println("  No verdict: the two passes disagreed and nothing was seen twice.")
+			fmt.Println("  Re-run with the app idle.")
+		}
 		return false
 	}
 	return true
@@ -375,15 +391,16 @@ func integrityJSON(report IntegrityReport) string {
 		return v
 	}
 	payload := map[string]any{
-		"activeTasks":   report.ActiveTasks,
-		"archivedTasks": report.ArchivedTasks,
-		"referenced":    report.Referenced,
-		"dangling":      ids(report.Dangling),
-		"orphaned":      ids(report.Orphaned),
-		"duplicated":    ids(report.Duplicated),
-		"unresolved":    ids(report.Unresolved),
-		"unconfirmed":   report.Unconfirmed,
-		"clean":         report.Clean(),
+		"activeTasks":       report.ActiveTasks,
+		"archivedTasks":     report.ArchivedTasks,
+		"referenced":        report.Referenced,
+		"dangling":          ids(report.Dangling),
+		"orphaned":          ids(report.Orphaned),
+		"duplicated":        ids(report.Duplicated),
+		"unresolved":        ids(report.Unresolved),
+		"unconfirmed":       report.Unconfirmed,
+		"unconfirmedReason": report.UnconfirmedReason,
+		"clean":             report.Clean(),
 	}
 	out, _ := json.MarshalIndent(payload, "", "  ")
 	return string(out)

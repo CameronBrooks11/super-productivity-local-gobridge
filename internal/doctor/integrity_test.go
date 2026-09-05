@@ -759,3 +759,56 @@ func TestConfirmed_FailedSecondPassConfirmsNothing(t *testing.T) {
 		t.Fatalf("the single observation belongs in Unresolved, got %v", r.Unresolved)
 	}
 }
+
+// When the confirmation pass errors, the report must say so. Blaming concurrent
+// editing hides the real cause at the worst moment: a store whose app just went
+// down is exactly when its anomalies matter.
+func TestConfirmed_FailedSecondPassCarriesTheReason(t *testing.T) {
+	round := 0
+	srv := rawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/projects" {
+			round++
+			if round > 1 {
+				w.WriteHeader(500)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		enc := func(v any) { json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": v}) }
+		switch {
+		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
+			enc([]map[string]any{})
+		case r.URL.Path == "/tasks":
+			enc([]map[string]any{task("t1")})
+		case r.URL.Path == "/projects":
+			enc([]map[string]any{withIDs("taskIds", "t1", "GHOST")})
+		default:
+			enc([]map[string]any{})
+		}
+	})
+	r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r.UnconfirmedReason == "" {
+		t.Fatal("a failed confirmation pass must record why")
+	}
+	if !strings.Contains(r.UnconfirmedReason, "/projects") {
+		t.Fatalf("the reason should name the failing endpoint, got %q", r.UnconfirmedReason)
+	}
+}
+
+// Disagreement between two successful passes is a different situation and must
+// not carry a failure reason.
+func TestConfirmed_DisagreementHasNoFailureReason(t *testing.T) {
+	r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(shiftingServer(t).URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !r.Unconfirmed {
+		t.Fatal("precondition: passes disagreed")
+	}
+	if r.UnconfirmedReason != "" {
+		t.Fatalf("no request failed here; reason should be empty, got %q", r.UnconfirmedReason)
+	}
+}

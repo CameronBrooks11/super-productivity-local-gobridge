@@ -144,6 +144,7 @@ $ sp-local-bridge doctor --json
   "orphaned": [],
   "referenced": 277,
   "unconfirmed": false,
+  "unconfirmedReason": "",
   "unresolved": []
 }
 ```
@@ -155,7 +156,7 @@ $ sp-local-bridge doctor --json
 | 0 | All checks passed. |
 | 1 | A check failed (for example, SP is unreachable), or no verdict could be reached. |
 | 2 | Bad usage (unknown flag or unexpected argument). |
-| 3 | Every request succeeded, both passes agreed, and the store is inconsistent. |
+| 3 | An anomaly survived both passes. `unconfirmed` may still be true if the passes disagreed about *other* ids — a race elsewhere does not make a twice-seen anomaly less real. |
 
 `--json` follows the same table, so a script can distinguish a corrupt store
 (3) from a connection failure (1) without parsing output. On bad usage it
@@ -189,7 +190,9 @@ saw into two groups:
   recorded rather than discarded.
 
 `unconfirmed` is true when `unresolved` is non-empty, or when the confirmation
-pass could not run at all. If the confirmation pass fails, nothing was seen
+pass could not run at all. `unconfirmedReason` carries the second pass's error
+in that case, so "SP became unreachable" is not misreported as concurrent
+editing. If the confirmation pass fails, nothing was seen
 twice, so every anomaly moves to `unresolved` and none are reported as
 confirmed.
 

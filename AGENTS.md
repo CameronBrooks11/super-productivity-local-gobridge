@@ -58,6 +58,28 @@ go vet ./...               # Static analysis
 - Atomic file writes with backup for host config mutations.
 - JSON configs parsed before modification; TOML uses structural guard (not a full parser).
 
+## Testing against a running Super Productivity
+
+The Local REST API talks to the user's real task database. There is no dry-run
+mode and no undo.
+
+- **Read-only against a live app.** `GET` requests only. Never send `POST`,
+  `PATCH`, or `DELETE` to an app holding real data.
+- **Writes go to a throwaway profile.** Launch a scratch instance with
+  `superproductivity --user-data-dir=/tmp/sp-scratch` and point the bridge at
+  it. Note that the API port is a hardcoded 3876 and SP takes a single-instance
+  lock, so the real app must be closed first.
+- **Never probe an unknown handler with a fake ID.** A non-existent ID only
+  bounds the damage if the handler rejects unknown IDs, which is exactly what an
+  unknown handler has not been shown to do. Read the route's behaviour from the
+  source instead.
+
+This is not hypothetical. Probing `DELETE`/`archive` with a non-existent ID
+against a live store crashed an NgRx effect in the host app, left its in-memory
+store inconsistent (223 of 277 task entities dropped while every index still
+referenced them), and caused the periodic backup writer to persist that corrupt
+state over good snapshots. See #27.
+
 ## Do NOT
 
 - Add runtime deps without discussing (the dep tree is intentionally zero).

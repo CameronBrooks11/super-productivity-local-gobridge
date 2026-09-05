@@ -6,12 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 )
 
 // Supported host identifiers.
 const (
 	HostClaudeDesktop = "claude-desktop"
+	HostClaudeCode    = "claude-code"
 	HostVSCodeCopilot = "vscode-copilot"
 	HostCodex         = "codex"
 )
@@ -52,6 +54,20 @@ var hosts = map[string]hostMeta{
 			}
 		},
 	},
+	// Claude Code is the CLI agent, a distinct host from Claude Desktop with its
+	// own config file. Writing the top-level "mcpServers" key configures it at
+	// user scope (available in every project). Claude Code also supports project
+	// and local scopes, which live elsewhere in this file and in per-project
+	// .mcp.json; those are left to `claude mcp add`, since they depend on the
+	// working directory rather than on a single fixed path per host.
+	HostClaudeCode: {
+		format:    "json",
+		serverKey: "mcpServers",
+		entryName: "super-productivity",
+		configPath: func() string {
+			return filepath.Join(homeDir(), ".claude.json")
+		},
+	},
 	HostVSCodeCopilot: {
 		format:    "json",
 		serverKey: "servers",
@@ -79,6 +95,35 @@ var hosts = map[string]hostMeta{
 	},
 }
 
+// ConfigTarget describes where a host keeps its MCP configuration and how our
+// entry is identified inside it. It exists so that callers which only need to
+// *inspect* host configs (doctor) do not have to restate the platform-specific
+// paths, which is how a newly supported host ends up invisible to diagnostics.
+type ConfigTarget struct {
+	Name      string
+	Path      string
+	ServerKey string
+	EntryName string
+	Format    string // "json" or "toml"
+}
+
+// ConfigTargets returns one entry per supported host, in stable name order.
+func ConfigTargets() []ConfigTarget {
+	names := sortedHostNames()
+	targets := make([]ConfigTarget, 0, len(names))
+	for _, name := range names {
+		meta := hosts[name]
+		targets = append(targets, ConfigTarget{
+			Name:      name,
+			Path:      meta.configPath(),
+			ServerKey: meta.serverKey,
+			EntryName: meta.entryName,
+			Format:    meta.format,
+		})
+	}
+	return targets
+}
+
 // --- Command resolution ---
 
 func resolveMCPCommand() string {
@@ -98,8 +143,8 @@ func buildEntry(host string) map[string]any {
 		"command": cmd,
 		"args":    []string{"mcp"},
 	}
-	// VS Code Copilot needs "type": "stdio"
-	if host == HostVSCodeCopilot {
+	// VS Code Copilot and Claude Code both record the transport explicitly.
+	if host == HostVSCodeCopilot || host == HostClaudeCode {
 		entry["type"] = "stdio"
 	}
 	return entry
@@ -575,8 +620,14 @@ func readJSON(path string) (map[string]any, error) {
 	if text == "" {
 		return make(map[string]any), nil
 	}
+	// UseNumber keeps numbers as their original literal instead of decoding to
+	// float64. Host configs are rewritten wholesale, so a float64 round-trip
+	// would rewrite every number in a file we only meant to add one key to, and
+	// would silently lose precision on integers above 2^53.
+	dec := json.NewDecoder(strings.NewReader(text))
+	dec.UseNumber()
 	var result map[string]any
-	if err := json.Unmarshal([]byte(text), &result); err != nil {
+	if err := dec.Decode(&result); err != nil {
 		return nil, err
 	}
 	return result, nil
@@ -638,6 +689,14 @@ func atomicWrite(path, content string) error {
 
 // --- Helpers ---
 
+// sortedHostNames derives the supported host list from the hosts map rather
+// than restating it, so a newly added host cannot be missing from `--help`,
+// the unknown-host error, or doctor's config detection.
 func sortedHostNames() []string {
-	return []string{HostClaudeDesktop, HostCodex, HostVSCodeCopilot}
+	names := make([]string, 0, len(hosts))
+	for name := range hosts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

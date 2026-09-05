@@ -6,6 +6,7 @@ The bridge works as an MCP server for any host that supports stdio-based MCP too
 
 | Host | Config Format | Auto-configure |
 |------|--------------|----------------|
+| [Claude Code](./claude-code) | JSON | `sp-local-bridge configure claude-code` |
 | [VS Code Copilot](./vscode-copilot) | JSON | `sp-local-bridge configure vscode-copilot` |
 | [Claude Desktop](./claude-desktop) | JSON | `sp-local-bridge configure claude-desktop` |
 | [Codex CLI](./codex) | TOML | `sp-local-bridge configure codex` |

@@ -16,14 +16,22 @@ except at the single checkpoint in Phase 2.
 Run these checks silently and collect the results:
 
 1. **Bridge installed** — run `sp-local-bridge --version 2>/dev/null`. If it
-   succeeds, the bridge is already installed.
+   succeeds, the bridge is already installed. Note the version; you will
+   compare it in Phase 3a against whichever source you install from.
 2. **SP app running** — run `curl -sf http://127.0.0.1:3876/health`. If it
    fails, the Super Productivity desktop app is not running or Local REST API is
    not enabled.
 3. **Detect platform** — check `uname -s` (Linux/Darwin) and `uname -m`.
 4. **Detect agent** — determine which host to configure:
    - First, use your own identity context: if you know you are running inside
-     VS Code Copilot, Claude Desktop, Codex, or another host, use that directly.
+     Claude Code, VS Code Copilot, Claude Desktop, Codex, or another host, use
+     that directly. **Claude Code and Claude Desktop are different hosts** with
+     separate config files; do not treat one as the other.
+   - Otherwise, check for Claude Code **before** checking VS Code: if
+     `$CLAUDECODE` is set, or `claude --version` succeeds and you are running as
+     a CLI agent → claude-code. Claude Code running in a VS Code integrated
+     terminal inherits `$VSCODE_PID`, so checking VS Code first misdetects it as
+     vscode-copilot and writes the wrong host's config.
    - Otherwise check environment: `$VSCODE_PID` or `$VSCODE_IPC_HOOK_CLI` set → vscode-copilot
    - Otherwise check if `codex --version` succeeds → codex
    - If still unknown → ask the user which host to configure
@@ -43,7 +51,7 @@ Prerequisite        Status
 Bridge installed    ✓ version / ✗ not installed
 SP app              ✓ reachable / ✗ not running
 Platform            linux/amd64 / darwin/arm64 / etc.
-Host detected       vscode-copilot / claude-desktop / codex / unknown
+Host detected       claude-code / vscode-copilot / claude-desktop / codex / unknown
 Config written      ✓ / ✗
 Skills symlink      ✓ / ✗
 ```
@@ -91,7 +99,16 @@ Run the configure command:
 sp-local-bridge configure <detected-host>
 ```
 
-Where `<detected-host>` is one of: `vscode-copilot`, `claude-desktop`, `codex`.
+Where `<detected-host>` is one of: `claude-code`, `vscode-copilot`,
+`claude-desktop`, `codex`.
+
+For `claude-code` this writes user scope (`~/.claude.json`), which applies to
+every project. If the user wants the bridge in one project only, use Claude
+Code's own CLI instead:
+
+```bash
+claude mcp add -s local super-productivity -- "$(command -v sp-local-bridge)" mcp
+```
 
 If the host could not be detected, ask the user which host to configure.
 

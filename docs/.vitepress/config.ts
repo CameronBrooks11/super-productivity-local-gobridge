@@ -55,6 +55,7 @@ export default defineConfig({
         text: "Host Setup",
         items: [
           { text: "Overview", link: "/hosts/" },
+          { text: "Claude Code", link: "/hosts/claude-code" },
           { text: "VS Code Copilot", link: "/hosts/vscode-copilot" },
           { text: "Claude Desktop", link: "/hosts/claude-desktop" },
           { text: "Codex CLI", link: "/hosts/codex" },

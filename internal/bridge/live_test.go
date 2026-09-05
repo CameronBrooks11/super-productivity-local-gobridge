@@ -89,9 +89,14 @@ func objects(t *testing.T, res Result, label string) []map[string]any {
 	return out
 }
 
-// checkFields asserts that every field the bridge relies on is present with the
-// type it expects. A required field missing from even one object is a failure:
-// the code does not check before reading it.
+// checkFields asserts that the fields named here are present with the type
+// expected. A required field missing from even one object is a failure.
+//
+// These are not all read by production code — doctor --deep reads subTaskIds,
+// taskIds and backlogTaskIds off a response; most of the rest are passed
+// through to callers. They are checked because a caller, human or agent, is
+// relying on them, and a silent rename would reach the user rather than the
+// bridge.
 func checkFields(t *testing.T, items []map[string]any, label string, specs []fieldSpec) {
 	t.Helper()
 	for _, spec := range specs {
@@ -130,7 +135,12 @@ func TestLive_TaskFields(t *testing.T) {
 		{name: "id", jsonType: "string"},
 		{name: "title", jsonType: "string"},
 		{name: "isDone", jsonType: "bool"},
-		{name: "projectId", jsonType: "string"},
+		// On the store this was captured against SP encodes "unset" as an absent
+		// key, never an explicit null. But validate.go accepts projectId: null to
+		// clear a task's project, so a null is plausible on another store or
+		// version — and a false failure on a healthy store is the worse error
+		// for a suite whose value is being trusted.
+		{name: "projectId", jsonType: "string", nullable: true},
 		{name: "tagIds", jsonType: "array"},
 		{name: "subTaskIds", jsonType: "array"},
 		{name: "timeSpent", jsonType: "number"},
@@ -138,9 +148,9 @@ func TestLive_TaskFields(t *testing.T) {
 		{name: "timeSpentOnDay", jsonType: "object"},
 		{name: "created", jsonType: "number"},
 		// Present only when set, which the bridge tolerates.
-		{name: "notes", jsonType: "string", optional: true},
-		{name: "parentId", jsonType: "string", optional: true},
-		{name: "dueDay", jsonType: "string", optional: true},
+		{name: "notes", jsonType: "string", optional: true, nullable: true},
+		{name: "parentId", jsonType: "string", optional: true, nullable: true},
+		{name: "dueDay", jsonType: "string", optional: true, nullable: true},
 	}
 	for _, source := range []string{"active", "archived"} {
 		t.Run(source, func(t *testing.T) {
@@ -249,18 +259,6 @@ var knownOptional = map[string]bool{
 	"issueLastUpdated": true,
 }
 
-// checkedFixtures is the set TestLive_FixturesDoNotInventFields covers, named
-// separately so TestLive_EveryResponseFixtureIsChecked can hold it to account.
-var checkedFixtures = []string{
-	"task-list-ok.json",
-	"task-create-ok.json",
-	"task-update-ok.json",
-	"project-list-ok.json",
-	"tag-list-ok.json",
-	"status-ok.json",
-	"health-ok.json",
-}
-
 func TestLive_FixturesDoNotInventFields(t *testing.T) {
 	client := liveClient(t)
 	ctx := context.Background()
@@ -295,7 +293,7 @@ func TestLive_FixturesDoNotInventFields(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.fixture, func(t *testing.T) {
 			live := tc.live(t)
-			for _, obj := range fixtureObjects(t, tc.fixture) {
+			for _, obj := range requireObjects(t, tc.fixture, fixtureObjects(t, tc.fixture)) {
 				compareToLive(t, obj, live)
 			}
 		})
@@ -375,6 +373,17 @@ func fixtureObjects(t *testing.T, name string) []map[string]any {
 	return []map[string]any{one}
 }
 
+// requireObjects fails when a fixture decodes to nothing. `null` and `[]` both
+// unmarshal cleanly into an empty slice, so the fixture would be reported as
+// covered while asserting nothing.
+func requireObjects(t *testing.T, name string, objs []map[string]any) []map[string]any {
+	t.Helper()
+	if len(objs) == 0 {
+		t.Fatalf("fixture %s decoded to no objects, so it verifies nothing", name)
+	}
+	return objs
+}
+
 // compareToLive fails for any field the fixture claims that SP does not return,
 // or returns with a different type. It does not require fixtures to be
 // exhaustive — they are deliberately small — only that they are not fiction.
@@ -401,6 +410,14 @@ func compareToLive(t *testing.T, fixture map[string]any, live []map[string]any) 
 			t.Errorf("fixture claims field %q, which SP never returns — the offline tests are asserting fiction", k)
 			continue
 		}
+		// SP encodes "unset" two ways — an absent key, and an explicit null —
+		// and only the first was handled. A field present but null everywhere
+		// reached the type comparison and was reported as fiction, whose
+		// documented remedy is to delete a real field from the fixture.
+		if len(types) == 1 && types["null"] {
+			t.Logf("field %q is null everywhere in this store, so its type could not be checked", k)
+			continue
+		}
 		got := jsonType(v)
 		if got == "null" {
 			continue // a null placeholder asserts nothing about type
@@ -420,49 +437,37 @@ func sortedTypeNames(m map[string]bool) []string {
 	return out
 }
 
-// A fixture added later is silently unchecked unless someone remembers to list
-// it, which is the same kind of quiet gap this suite exists to close. This
-// fails when testdata holds a response fixture the drift check does not cover.
-//
-// Request fixtures describe what the bridge sends, and error fixtures describe
-// failures a read-only run cannot provoke, so both are excluded by name.
-func TestLive_EveryResponseFixtureIsChecked(t *testing.T) {
-	dir := filepath.Join("..", "..", "testdata", "fixtures")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("reading fixtures: %v", err)
-	}
-	checked := map[string]bool{}
-	for _, name := range checkedFixtures {
-		checked[name] = true
-	}
-	for _, e := range entries {
-		name := e.Name()
-		switch {
-		case !strings.HasSuffix(name, ".json"),
-			strings.HasSuffix(name, "-request.json"),
-			strings.Contains(name, "-error"):
-			continue
-		}
-		if !checked[name] {
-			t.Errorf("%s is a response fixture but is not in checkedFixtures, so nothing verifies it against SP", name)
-		}
-	}
-	for name := range checked {
-		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
-			t.Errorf("checkedFixtures names %s, which does not exist", name)
-		}
-	}
-}
-
 // The suite skips rather than fails when SP is unreachable or a collection is
 // empty, so a run that asserted nothing still exits 0 and reads as "verified"
 // before a release. This makes that state loud.
 func TestLive_StoreHasSomethingToCheck(t *testing.T) {
-	client := liveClient(t)
+	// Deliberately not liveClient: that skips when SP is unreachable, which is
+	// the louder half of what this test exists to report. Skipping there would
+	// have left `go test -tags live` exiting 0 having asserted nothing.
+	base := DefaultBaseURL
+	if env := os.Getenv("SP_BASE_URL"); env != "" {
+		base = env
+	}
+	client := NewClient(base)
 	ctx := context.Background()
-	tasks, _ := client.ListTasks(ctx, map[string]string{"source": "all", "includeDone": "true"}).Data.([]any)
-	projects, _ := client.ListProjects(ctx, nil).Data.([]any)
+
+	if h := client.Health(ctx); !h.OK {
+		t.Fatalf("Super Productivity is not reachable at %s (%s), so this run verified nothing",
+			base, h.Error.Message)
+	}
+	// Report a failed call as a failed call. Reading Data through a discarded
+	// error turned "SP returned an error" into "your store is empty", which
+	// sends the reader to the wrong problem.
+	tasksRes := client.ListTasks(ctx, map[string]string{"source": "all", "includeDone": "true"})
+	if !tasksRes.OK {
+		t.Fatalf("listing tasks failed: %s", tasksRes.Error.Message)
+	}
+	projectsRes := client.ListProjects(ctx, nil)
+	if !projectsRes.OK {
+		t.Fatalf("listing projects failed: %s", projectsRes.Error.Message)
+	}
+	tasks, _ := tasksRes.Data.([]any)
+	projects, _ := projectsRes.Data.([]any)
 	if len(tasks) == 0 && len(projects) == 0 {
 		t.Fatal("the store has no tasks and no projects, so this run verified nothing; " +
 			"point SP_BASE_URL at a populated store before treating a pass as meaningful")

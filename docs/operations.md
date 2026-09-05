@@ -361,10 +361,11 @@ make test-live
 This runs a build-tagged suite (`//go:build live`) against a running SP and
 checks two things:
 
-- **The fields the bridge depends on** are present with the types it expects —
-  `task.subTaskIds`, `project.taskIds`, `tag.title`, and the rest. A required
-  field missing from even one object fails, because the code reads it without
-  checking.
+- **The fields callers depend on** are present with the types expected. A
+  required field missing from even one object fails. Not all of them are read by
+  the bridge itself — `doctor --deep` reads `subTaskIds`, `taskIds` and
+  `backlogTaskIds`; most of the rest pass through to the caller — but a silent
+  rename in any of them reaches the user rather than the bridge.
 - **The response fixtures do not invent fields.** Every field a fixture claims
   must exist in a real response with a matching type. Fixtures may be smaller
   than reality; they may not be fiction.

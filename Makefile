@@ -10,6 +10,9 @@ LDFLAGS  = -s -w \
 
 BINARY = sp-local-bridge
 
+# Mirrors bridge.DefaultBaseURL; used only by the test-live preflight.
+SP_DEFAULT_URL = http://127.0.0.1:3876
+
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/sp-local-bridge
 
@@ -23,7 +26,9 @@ test:
 test-live:
 	@command -v curl >/dev/null 2>&1 || \
 	  { echo "curl is required for the preflight check."; exit 1; }
-	@url="$${SP_BASE_URL:-http://127.0.0.1:3876}"; \
+	@# Trim a trailing slash the way bridge.NewClient does, so a URL the Go
+	@# suite would accept is not rejected by the preflight.
+	@url="$${SP_BASE_URL:-$(SP_DEFAULT_URL)}"; url="$${url%/}"; \
 	  curl -sf "$$url/health" >/dev/null 2>&1 || \
 	  { echo "Super Productivity is not reachable at $$url."; \
 	    echo "Start it and enable Settings -> Sync & Export -> Local REST API,"; \

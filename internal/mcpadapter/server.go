@@ -99,6 +99,10 @@ func (s *Server) registerTools() {
 		map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
 		readOnlyAnnotations)
 
+	// Responses carry a compact field set by default. SP returns whole entities
+	// and most of that is noise for a caller — a per-day time map that grows
+	// without bound, theme colours, worklog export column lists — so a single
+	// unfiltered list ran to roughly 24k tokens on a real store.
 	s.addTool("list_tasks", bridge.OpTaskList,
 		"List tasks with optional filters. Use list_projects or list_tags first to get IDs for filtering.",
 		map[string]any{
@@ -108,6 +112,9 @@ func (s *Server) registerTools() {
 				"projectId":   map[string]any{"type": "string", "description": "Filter by project ID (from list_projects, not a name)."},
 				"tagId":       map[string]any{"type": "string", "description": "Filter by tag ID (from list_tags). Use 'TODAY' for today's tasks."},
 				"includeDone": map[string]any{"type": "boolean", "description": "Include completed tasks (default: false). Also required to see anything at all from the archived pool, whether or not those tasks are done."},
+				"limit":       map[string]any{"type": "integer", "minimum": 1, "maximum": bridge.MaxListLimit, "description": "Return at most this many items. Strongly preferred: an unfiltered list of a real store is tens of thousands of tokens. Ask for what you need — 20 is usually plenty — and narrow with the filters rather than reading everything. Omit only when you genuinely need every item."},
+				"offset":      map[string]any{"type": "integer", "minimum": 0, "maximum": bridge.MaxListLimit, "description": "Skip this many items before applying limit, for paging through a filtered list."},
+				"full":        map[string]any{"type": "boolean", "description": "Return whole entities instead of the compact field set. Rarely needed; it multiplies the response size and adds fields (per-day time maps, theme colours, issue-integration ids) that are usually noise."},
 				"source":      map[string]any{"type": "string", "enum": []string{"active", "archived", "all"}, "description": "Task pool to query (default: active). source=archived and source=all both require includeDone=true to return archived tasks: SP applies the done filter to the archived pool regardless of a task's own isDone value, so source=archived alone returns an empty list even when tasks were just archived. An empty result here does not mean the archive failed."},
 			},
 			"additionalProperties": false,
@@ -265,7 +272,10 @@ func (s *Server) registerTools() {
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"query": map[string]any{"type": "string", "description": "Filter by name substring."},
+				"query":  map[string]any{"type": "string", "description": "Filter by name substring."},
+				"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": bridge.MaxListLimit, "description": "Return at most this many items. Strongly preferred: an unfiltered list of a real store is tens of thousands of tokens. Ask for what you need — 20 is usually plenty — and narrow with the filters rather than reading everything. Omit only when you genuinely need every item."},
+				"offset": map[string]any{"type": "integer", "minimum": 0, "maximum": bridge.MaxListLimit, "description": "Skip this many items before applying limit, for paging through a filtered list."},
+				"full":   map[string]any{"type": "boolean", "description": "Return whole entities instead of the compact field set. Rarely needed; it multiplies the response size and adds fields (per-day time maps, theme colours, issue-integration ids) that are usually noise."},
 			},
 			"additionalProperties": false,
 		},
@@ -276,7 +286,10 @@ func (s *Server) registerTools() {
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"query": map[string]any{"type": "string", "description": "Filter by name substring."},
+				"query":  map[string]any{"type": "string", "description": "Filter by name substring."},
+				"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": bridge.MaxListLimit, "description": "Return at most this many items. Strongly preferred: an unfiltered list of a real store is tens of thousands of tokens. Ask for what you need — 20 is usually plenty — and narrow with the filters rather than reading everything. Omit only when you genuinely need every item."},
+				"offset": map[string]any{"type": "integer", "minimum": 0, "maximum": bridge.MaxListLimit, "description": "Skip this many items before applying limit, for paging through a filtered list."},
+				"full":   map[string]any{"type": "boolean", "description": "Return whole entities instead of the compact field set. Rarely needed; it multiplies the response size and adds fields (per-day time maps, theme colours, issue-integration ids) that are usually noise."},
 			},
 			"additionalProperties": false,
 		},
@@ -401,6 +414,18 @@ func (s *Server) writeToolResult(id json.RawMessage, result bridge.Result) {
 		content = []map[string]any{
 			{"type": "text", "text": string(data)},
 		}
+		// A truncated list is indistinguishable from a complete one by looking
+		// at it, and the limit description actively steers callers toward
+		// asking for a subset. Say so in the text a model reads, not only in
+		// the structured payload it might not inspect.
+		if truncated, _ := result.Meta["truncated"].(bool); truncated {
+			content = append(content, map[string]any{
+				"type": "text",
+				"text": fmt.Sprintf("Note: this list is truncated — %v of %v matching items shown. "+
+					"Do not treat the length as a count; raise limit or narrow the filters.",
+					result.Meta["returned"], result.Meta["matched"]),
+			})
+		}
 	} else {
 		errJSON, _ := json.Marshal(map[string]any{
 			"code":    result.Error.Code,
@@ -423,7 +448,11 @@ func (s *Server) writeToolResult(id json.RawMessage, result bridge.Result) {
 		if _, isMap := result.Data.(map[string]any); isMap {
 			resp["structuredContent"] = result.Data
 		} else {
-			resp["structuredContent"] = map[string]any{"result": result.Data}
+			structured := map[string]any{"result": result.Data}
+			for k, v := range result.Meta {
+				structured[k] = v
+			}
+			resp["structuredContent"] = structured
 		}
 	}
 	s.writeResult(id, resp)

@@ -7,9 +7,13 @@ const DefaultBaseURL = "http://127.0.0.1:3876"
 
 // Result is the bridge response shape.
 type Result struct {
-	OK    bool         `json:"ok"`
-	Data  any          `json:"data,omitempty"`
-	Error *BridgeError `json:"error,omitempty"`
+	OK   bool `json:"ok"`
+	Data any  `json:"data,omitempty"`
+	// Meta carries facts about the response that are not part of the data
+	// itself — currently only truncation. It is additive and omitted when
+	// empty, so Data stays exactly what a caller already parses.
+	Meta  map[string]any `json:"meta,omitempty"`
+	Error *BridgeError   `json:"error,omitempty"`
 }
 
 // BridgeError is the structured error in a failed Result.

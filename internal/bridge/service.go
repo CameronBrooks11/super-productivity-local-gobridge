@@ -56,10 +56,14 @@ func handleTaskList(ctx context.Context, client *Client, payload map[string]json
 	if errResult != nil {
 		return *errResult
 	}
-	if len(params) == 0 {
-		return client.ListTasks(ctx, nil)
+	opts, r := validateListOptions(payload)
+	if r != nil {
+		return *r
 	}
-	return client.ListTasks(ctx, params)
+	if len(params) == 0 {
+		params = nil
+	}
+	return shapeList(client.ListTasks(ctx, params), compactTaskFields, opts)
 }
 
 func handleTaskGet(ctx context.Context, client *Client, payload map[string]json.RawMessage) Result {
@@ -324,10 +328,14 @@ func handleProjectList(ctx context.Context, client *Client, payload map[string]j
 	if r != nil {
 		return *r
 	}
-	if len(params) == 0 {
-		return client.ListProjects(ctx, nil)
+	opts, optErr := validateListOptions(payload)
+	if optErr != nil {
+		return *optErr
 	}
-	return client.ListProjects(ctx, params)
+	if len(params) == 0 {
+		params = nil
+	}
+	return shapeList(client.ListProjects(ctx, params), compactProjectFields, opts)
 }
 
 func handleTagList(ctx context.Context, client *Client, payload map[string]json.RawMessage) Result {
@@ -335,10 +343,14 @@ func handleTagList(ctx context.Context, client *Client, payload map[string]json.
 	if r != nil {
 		return *r
 	}
-	if len(params) == 0 {
-		return client.ListTags(ctx, nil)
+	opts, optErr := validateListOptions(payload)
+	if optErr != nil {
+		return *optErr
 	}
-	return client.ListTags(ctx, params)
+	if len(params) == 0 {
+		params = nil
+	}
+	return shapeList(client.ListTags(ctx, params), compactTagFields, opts)
 }
 
 func handleStatusGet(ctx context.Context, client *Client, payload map[string]json.RawMessage) Result {

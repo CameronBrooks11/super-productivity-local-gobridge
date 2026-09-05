@@ -132,3 +132,41 @@ func TestRun_TagsUnknownSub(t *testing.T) {
 		t.Fatalf("expected exit code 2, got %d", code)
 	}
 }
+
+// The paging flags had no coverage at all: nothing checked that --limit
+// reached the payload, that --full became a boolean rather than a string, or
+// that a bad value was rejected as usage rather than passed through.
+func TestParseListFlags_PagingOptions(t *testing.T) {
+	payload, err := parseListFlags([]string{"--limit", "20", "--offset", "5", "--full"}, taskListAllowed)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for field, want := range map[string]string{"limit": "20", "offset": "5", "full": "true"} {
+		if got := string(payload[field]); got != want {
+			t.Errorf("%s = %s, want %s", field, got, want)
+		}
+	}
+}
+
+func TestParseListFlags_RejectsBadPagingValues(t *testing.T) {
+	cases := map[string][]string{
+		"limit zero":      {"--limit", "0"},
+		"limit negative":  {"--limit", "-1"},
+		"limit not a int": {"--limit", "many"},
+		"limit over cap":  {"--limit", "200000"},
+		"offset negative": {"--offset", "-1"},
+		"limit no value":  {"--limit"},
+	}
+	for name, args := range cases {
+		if _, err := parseListFlags(args, taskListAllowed); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+}
+
+// Projects and tags take the same options; they were previously query-only.
+func TestParseListFlags_QueryOnlyAcceptsPaging(t *testing.T) {
+	if _, err := parseListFlags([]string{"--limit", "5", "--full"}, queryOnlyAllowed); err != nil {
+		t.Fatalf("projects/tags must accept paging options: %v", err)
+	}
+}

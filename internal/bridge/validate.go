@@ -414,6 +414,9 @@ func validateTaskFields(payload map[string]json.RawMessage, allowedFields map[st
 var taskListFilterFields = map[string]bool{
 	"query": true, "projectId": true, "tagId": true,
 	"includeDone": true, "source": true,
+	// Applied by the bridge after SP responds, never forwarded: SP ignores
+	// limit, offset and field selection entirely.
+	"limit": true, "offset": true, "full": true,
 }
 
 var validSourceValues = map[string]bool{
@@ -492,9 +495,13 @@ func validateTaskListFilters(payload map[string]json.RawMessage) (map[string]str
 	return params, nil
 }
 
-// validateQueryOnly validates a payload that only accepts "query" (string).
+// validateQueryOnly validates the payload for project.list and tag.list: an
+// optional 'query' filter plus the bridge-side shaping options (limit, offset,
+// full), which are applied after SP responds and never forwarded.
 func validateQueryOnly(payload map[string]json.RawMessage) (map[string]string, *Result) {
-	unknown := extraKeys(payload, map[string]bool{"query": true})
+	unknown := extraKeys(payload, map[string]bool{
+		"query": true, "limit": true, "offset": true, "full": true,
+	})
 	if len(unknown) > 0 {
 		r := Failure(ErrInvalidInput, fmt.Sprintf("Unknown filter fields: %s", strings.Join(unknown, ", ")))
 		return nil, &r
@@ -536,3 +543,64 @@ func extraKeys(payload map[string]json.RawMessage, allowed map[string]bool) []st
 	sort.Strings(extra)
 	return extra
 }
+
+// validateListOptions extracts the bridge-side shaping options from a list
+// payload. They are removed from the caller's view of "filters" because SP
+// never sees them — passing them upstream would be ignored, and leaving them in
+// the query string would be a lie about what was asked of the app.
+func validateListOptions(payload map[string]json.RawMessage) (listOptions, *Result) {
+	var opts listOptions
+
+	for _, name := range []string{"limit", "offset"} {
+		raw, ok := payload[name]
+		if !ok {
+			continue
+		}
+		val, present, err := getNonNegativeInt(payload, name)
+		if err != nil {
+			r := Failure(ErrInvalidInput, fmt.Sprintf("Filter '%s' must be a non-negative integer, got %s", name, describeRawType(raw)))
+			return opts, &r
+		}
+		if !present {
+			continue
+		}
+		if val > maxListLimit {
+			r := Failure(ErrInvalidInput, fmt.Sprintf("Filter '%s' must not exceed %d", name, maxListLimit))
+			return opts, &r
+		}
+		if name == "limit" {
+			// Zero used to mean "no limit", which is the worst reading: a caller
+			// paging a list and computing limit = remaining, or a host filling
+			// an integer field with its zero default, asked for nothing and got
+			// the entire store — the blow-up this option exists to prevent.
+			if val == 0 {
+				r := Failure(ErrInvalidInput, "Filter 'limit' must be at least 1; omit it entirely to return everything")
+				return opts, &r
+			}
+			opts.limit = int(val)
+		} else {
+			opts.offset = int(val)
+		}
+	}
+
+	if raw, ok := payload["full"]; ok {
+		switch string(raw) {
+		case "true":
+			opts.full = true
+		case "false":
+		default:
+			r := Failure(ErrInvalidInput, "Filter 'full' must be bool, got "+describeRawType(raw))
+			return opts, &r
+		}
+	}
+	return opts, nil
+}
+
+// MaxListLimit bounds limit and offset so a typo cannot ask for an allocation
+// far larger than any real store. Exported so the CLI and the MCP schemas
+// advertise the same ceiling the bridge enforces.
+const MaxListLimit = 100000
+
+// maxListLimit bounds limit and offset so a typo cannot ask for an allocation
+// far larger than any real store.
+const maxListLimit = MaxListLimit

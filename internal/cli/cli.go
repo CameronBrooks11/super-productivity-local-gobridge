@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/CameronBrooks11/super-productivity-local-gobridge/internal/bridge"
@@ -32,8 +33,8 @@ func Usage() {
 	fmt.Println("  tasks clear-current          Clear current task")
 	fmt.Println("  tasks archive <id>           Archive a task")
 	fmt.Println("  tasks restore <id>           Restore an archived task")
-	fmt.Println("  projects list [--query ...]  List projects")
-	fmt.Println("  tags list [--query ...]      List tags")
+	fmt.Println("  projects list [filters]      List projects")
+	fmt.Println("  tags list [filters]          List tags")
 	fmt.Println()
 	fmt.Println("Subcommands:")
 	fmt.Println("  mcp                          Run MCP stdio server")
@@ -42,11 +43,14 @@ func Usage() {
 	fmt.Println("  configure                    Write host config")
 	fmt.Println("                               Hosts: claude-code, claude-desktop, vscode-copilot, codex")
 	fmt.Println()
-	fmt.Println("Task list filters:")
+	fmt.Println("List filters (tasks; --query/--limit/--offset/--full also apply to projects and tags):")
 	fmt.Println("  --query <text>               Filter by title substring")
 	fmt.Println("  --project-id <id>            Filter by project")
 	fmt.Println("  --tag-id <id>                Filter by tag (use TODAY for today's tasks)")
 	fmt.Println("  --include-done               Include completed tasks")
+	fmt.Println("  --limit <n>                  Return at most n items")
+	fmt.Println("  --offset <n>                 Skip n items before applying --limit")
+	fmt.Println("  --full                       Return whole entities, not the compact field set")
 	fmt.Println("  --source <active|archived|all>  Task pool (default: active)")
 	fmt.Println("                               archived and all also need --include-done: SP applies")
 	fmt.Println("                               the done filter to archived tasks whatever their isDone")
@@ -57,15 +61,15 @@ func Usage() {
 	fmt.Println("  --tag-id <id>                Assign a tag (from tags list)")
 	fmt.Println("  --notes <text>               Set notes")
 	fmt.Println("  --due-day <YYYY-MM-DD>       Set due date")
-	fmt.Println("  --time-estimate <ms>         Set time estimate (milliseconds)")
+	fmt.Println("  --time-estimate <dur>        Set time estimate (1h30m, 90m, or raw ms)")
 	fmt.Println()
 	fmt.Println("Task update flags:")
 	fmt.Println("  --title <text>               New title")
 	fmt.Println("  --notes <text>               New notes")
 	fmt.Println("  --project-id <id>            Set project")
 	fmt.Println("  --due-day <YYYY-MM-DD>       Set due date")
-	fmt.Println("  --time-estimate <ms>         Set time estimate (milliseconds)")
-	fmt.Println("  --time-spent <ms>            Set time spent (milliseconds)")
+	fmt.Println("  --time-estimate <dur>        Set time estimate (1h30m, 90m, or raw ms)")
+	fmt.Println("  --time-spent <dur>           Set time spent (1h30m, 90m, or raw ms)")
 }
 
 // Run executes a CLI command. Returns exit code.
@@ -259,7 +263,12 @@ func handleTaskAdd(ctx context.Context, service *bridge.Service, args []string) 
 				fmt.Fprintln(os.Stderr, "Error: Flag --time-estimate requires a value")
 				return 2
 			}
-			payload["timeEstimate"] = json.RawMessage(args[i+1])
+			ms, err := parseDurationMs(args[i+1])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: --time-estimate %v\n", err)
+				return 2
+			}
+			payload["timeEstimate"] = json.RawMessage(strconv.FormatInt(ms, 10))
 			i += 2
 		default:
 			fmt.Fprintf(os.Stderr, "Error: Unknown flag: %s\n", flag)
@@ -328,14 +337,24 @@ func handleTaskUpdate(ctx context.Context, service *bridge.Service, args []strin
 				fmt.Fprintln(os.Stderr, "Error: Flag --time-estimate requires a value")
 				return 2
 			}
-			payload["timeEstimate"] = json.RawMessage(args[i+1])
+			ms, err := parseDurationMs(args[i+1])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: --time-estimate %v\n", err)
+				return 2
+			}
+			payload["timeEstimate"] = json.RawMessage(strconv.FormatInt(ms, 10))
 			i += 2
 		case "--time-spent":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: Flag --time-spent requires a value")
 				return 2
 			}
-			payload["timeSpent"] = json.RawMessage(args[i+1])
+			ms, err := parseDurationMs(args[i+1])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: --time-spent %v\n", err)
+				return 2
+			}
+			payload["timeSpent"] = json.RawMessage(strconv.FormatInt(ms, 10))
 			i += 2
 		case "--done":
 			payload["isDone"] = json.RawMessage("true")
@@ -412,6 +431,12 @@ func printResult(result bridge.Result) int {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		enc.Encode(result.Data)
+		// stderr, so piping the JSON stays clean while a human still learns the
+		// list was cut. Without it a truncated list looks like a complete one.
+		if truncated, _ := result.Meta["truncated"].(bool); truncated {
+			fmt.Fprintf(os.Stderr, "Note: truncated — showing %v of %v matching items.\n",
+				result.Meta["returned"], result.Meta["matched"])
+		}
 		return 0
 	}
 	fmt.Fprintf(os.Stderr, "Error [%s]: %s\n", result.Error.Code, result.Error.Message)
@@ -432,10 +457,12 @@ func mustMarshal(v any) json.RawMessage {
 var taskListAllowed = map[string]bool{
 	"--query": true, "--project-id": true, "--tag-id": true,
 	"--include-done": true, "--source": true,
+	"--limit": true, "--offset": true, "--full": true,
 }
 
 var queryOnlyAllowed = map[string]bool{
 	"--query": true,
+	"--limit": true, "--offset": true, "--full": true,
 }
 
 func parseListFlags(args []string, allowed map[string]bool) (map[string]json.RawMessage, error) {
@@ -477,6 +504,28 @@ func parseListFlags(args []string, allowed map[string]bool) (map[string]json.Raw
 			}
 			payload["source"] = mustMarshal(args[i+1])
 			i += 2
+		case "--limit", "--offset":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("Flag %s requires a value", arg)
+			}
+			n, err := strconv.Atoi(args[i+1])
+			if err != nil || n < 0 {
+				return nil, fmt.Errorf("Flag %s requires a non-negative integer, got %q", arg, args[i+1])
+			}
+			if arg == "--limit" && n == 0 {
+				return nil, fmt.Errorf("Flag --limit must be at least 1; omit it entirely to return everything")
+			}
+			// Caught here as well as in the bridge, so both malformed values of
+			// one flag are usage errors rather than one being reported as a
+			// runtime failure.
+			if n > bridge.MaxListLimit {
+				return nil, fmt.Errorf("Flag %s must not exceed %d", arg, bridge.MaxListLimit)
+			}
+			payload[strings.TrimPrefix(arg, "--")] = json.RawMessage(strconv.Itoa(n))
+			i += 2
+		case "--full":
+			payload["full"] = json.RawMessage("true")
+			i++
 		default:
 			return nil, fmt.Errorf("Unknown flag: %s", arg)
 		}

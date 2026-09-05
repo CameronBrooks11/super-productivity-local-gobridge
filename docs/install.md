@@ -113,6 +113,7 @@ Download the new release binary and replace the existing one. Host configs do no
    ```sh
    sp-local-bridge configure --remove claude-desktop
    sp-local-bridge configure --remove vscode-copilot
+   sp-local-bridge configure --remove claude-code
    sp-local-bridge configure --remove codex
    ```
 

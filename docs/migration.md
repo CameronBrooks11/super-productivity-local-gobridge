@@ -31,6 +31,20 @@ executable in its receipt without checking whether the file still belongs to
 it, so running it *after* installing the Go bridge deletes the Go binary and
 all four of its symlinks, leaving you with neither bridge.
 
+::: tip Keeping a working bridge throughout
+Removing first means there is a window with no bridge, and `install.sh` can
+fail — unsupported architecture, an unreachable GitHub API, a checksum
+mismatch. To avoid the gap, install the Go bridge to a scratch directory and
+check it before removing anything:
+
+```sh
+INSTALL_DIR=/tmp/sp-go bash scripts/install.sh
+/tmp/sp-go/sp-local-bridge doctor
+```
+
+Then continue with step 1 and reinstall normally in step 2.
+:::
+
 ### 1. Note your configured hosts, then remove the Python bridge
 
 The Python bridge writes host config for `claude-desktop`, `vscode-copilot` and
@@ -52,6 +66,13 @@ sp-local-bridge doctor
 
 This confirms the binary can reach Super Productivity's local API. See the
 [Install guide](./install) for manual and from-source options.
+
+If `doctor` reports `command not found`, the installer's target directory is not
+on your `PATH` — it warns about this and still exits 0. Add it:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
 
 ### 3. Rewrite host config
 
@@ -117,20 +138,28 @@ Otherwise `~/.claude.json` keeps an entry pointing at a binary that no longer
 exists, and you will have to edit it by hand.
 :::
 
-From a checkout of this repo:
+From a checkout of this repo — pass the directory, or the script looks only in
+its default `~/.local/bin`, reports "not found", and exits 0 while the binary
+is still installed elsewhere:
 
 ```sh
-scripts/uninstall.sh          # honours INSTALL_DIR
+INSTALL_DIR="$(dirname "$(command -v sp-local-bridge)")" scripts/uninstall.sh
 ```
 
-Otherwise remove the binary and its four aliases from the directory
-`command -v` reported:
+Otherwise remove the binary and its four aliases directly. Add `sudo` if they
+live in `/usr/local/bin`:
 
 ```sh
 DIR=$(dirname "$(command -v sp-local-bridge)")
 rm -f "$DIR"/sp-local-bridge \
-      "$DIR"/sp-local-bridge-{mcp,doctor,print-config,configure}
+      "$DIR"/sp-local-bridge-mcp \
+      "$DIR"/sp-local-bridge-doctor \
+      "$DIR"/sp-local-bridge-print-config \
+      "$DIR"/sp-local-bridge-configure
 ```
+
+Leaving the aliases behind is not harmless: step 2 aborts on those four names
+even once the main binary is gone.
 
 ### 2. Install the Python bridge
 
@@ -143,7 +172,8 @@ uv tool install https://github.com/CameronBrooks11/super-productivity-local-brid
 Or from a checkout:
 
 ```sh
-git clone https://github.com/CameronBrooks11/super-productivity-local-bridge.git
+git clone --branch v0.2.0 \
+  https://github.com/CameronBrooks11/super-productivity-local-bridge.git
 cd super-productivity-local-bridge
 scripts/install.sh
 ```

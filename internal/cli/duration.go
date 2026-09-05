@@ -61,9 +61,8 @@ func parseDurationMs(s string) (int64, error) {
 		return 0, fmt.Errorf("not a duration, or out of range: use milliseconds (5400000) "+
 			"or a unit suffix (1h30m, 90m, 2d); the maximum is about %d days", maxDurationDays)
 	}
-	if d < 0 {
-		return 0, fmt.Errorf("duration must not be negative")
-	}
+	// A negative is rejected before expansion, so ParseDuration cannot return
+	// one here; there is no second sign check pretending otherwise.
 	// Super Productivity stores milliseconds. A sub-millisecond value truncated
 	// to 0 silently, so `--time-spent 500us` wrote timeSpent: 0 and wiped the
 	// recorded time instead of being rejected.

@@ -139,3 +139,25 @@ func TestParseDurationMs_OutOfRangeMentionsRange(t *testing.T) {
 		t.Errorf("error should mention the range, got: %v", err)
 	}
 }
+
+// The point of the change is that a duration reaches the payload as
+// milliseconds. Nothing asserted the conversion actually happened on the way
+// through the flag parser.
+func TestTimeFlags_ConvertDurationsToMilliseconds(t *testing.T) {
+	for _, tc := range []struct {
+		flag string
+		want int64
+	}{
+		{"1h30m", 5400000},
+		{"90m", 5400000},
+		{"5400000", 5400000},
+	} {
+		got, err := parseDurationMs(tc.flag)
+		if err != nil {
+			t.Fatalf("parseDurationMs(%q): %v", tc.flag, err)
+		}
+		if got != tc.want {
+			t.Errorf("parseDurationMs(%q) = %d, want %d", tc.flag, got, tc.want)
+		}
+	}
+}

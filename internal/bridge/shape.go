@@ -79,8 +79,25 @@ func shapeList(result Result, fields []string, opts listOptions) Result {
 		return result
 	}
 
-	shaped := make([]any, 0, len(items))
-	for _, item := range items {
+	// Slice before projecting: building 284 maps to keep 20 undercuts the point
+	// of asking for 20.
+	matched := len(items)
+	selected := items
+	if opts.offset > 0 {
+		if opts.offset >= len(selected) {
+			selected = nil
+		} else {
+			selected = selected[opts.offset:]
+		}
+	}
+	truncated := false
+	if opts.limit > 0 && len(selected) > opts.limit {
+		selected = selected[:opts.limit]
+		truncated = true
+	}
+
+	shaped := make([]any, 0, len(selected))
+	for _, item := range selected {
 		obj, ok := item.(map[string]any)
 		if !ok {
 			// Not an entity; pass it through rather than dropping it, so a
@@ -95,18 +112,21 @@ func shapeList(result Result, fields []string, opts listOptions) Result {
 		shaped = append(shaped, project(obj, fields))
 	}
 
-	if opts.offset > 0 {
-		if opts.offset >= len(shaped) {
-			shaped = nil
-		} else {
-			shaped = shaped[opts.offset:]
-		}
-	}
-	if opts.limit > 0 && len(shaped) > opts.limit {
-		shaped = shaped[:opts.limit]
-	}
 	if shaped == nil {
 		shaped = []any{}
 	}
-	return Success(shaped)
+	out := Success(shaped)
+	// Say when the list was cut. Without this a caller asked "how many tasks
+	// are in project X?", passed the limit the tool description recommends, got
+	// exactly that many back, and could not tell a complete answer from a
+	// truncated one. get_status.taskCount is not a substitute: it counts the
+	// whole active pool and cannot answer a filtered question.
+	if truncated {
+		out.Meta = map[string]any{
+			"truncated": true,
+			"returned":  len(shaped),
+			"matched":   matched,
+		}
+	}
+	return out
 }

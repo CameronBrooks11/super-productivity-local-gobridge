@@ -596,6 +596,11 @@ func validateListOptions(payload map[string]json.RawMessage) (listOptions, *Resu
 	return opts, nil
 }
 
+// MaxListLimit bounds limit and offset so a typo cannot ask for an allocation
+// far larger than any real store. Exported so the CLI and the MCP schemas
+// advertise the same ceiling the bridge enforces.
+const MaxListLimit = 100000
+
 // maxListLimit bounds limit and offset so a typo cannot ask for an allocation
 // far larger than any real store.
-const maxListLimit = 100000
+const maxListLimit = MaxListLimit

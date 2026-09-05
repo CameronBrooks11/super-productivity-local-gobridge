@@ -12,7 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `limit`, `offset` and `full` on `list_tasks`, `list_projects` and `list_tags`
   (`--limit`, `--offset`, `--full` on the CLI). SP ignores paging and field
   selection, so the bridge applies them. There is no default limit: a silently
-  capped list would be a wrong answer to "how many tasks do I have" (#29)
+  capped list would be a wrong answer to "how many tasks do I have". When a
+  limit does cut a list, the response reports `truncated`, `returned` and
+  `matched`, so a short list is never mistaken for a complete one (#29)
 - List responses carry a compact field set by default, dropping fields nothing
   consumes — the per-day time map that grows for the life of a task, theme
   colours, worklog export column lists. `full` returns entities untouched.

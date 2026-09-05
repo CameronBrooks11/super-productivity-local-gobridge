@@ -431,6 +431,12 @@ func printResult(result bridge.Result) int {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		enc.Encode(result.Data)
+		// stderr, so piping the JSON stays clean while a human still learns the
+		// list was cut. Without it a truncated list looks like a complete one.
+		if truncated, _ := result.Meta["truncated"].(bool); truncated {
+			fmt.Fprintf(os.Stderr, "Note: truncated — showing %v of %v matching items.\n",
+				result.Meta["returned"], result.Meta["matched"])
+		}
 		return 0
 	}
 	fmt.Fprintf(os.Stderr, "Error [%s]: %s\n", result.Error.Code, result.Error.Message)
@@ -508,6 +514,12 @@ func parseListFlags(args []string, allowed map[string]bool) (map[string]json.Raw
 			}
 			if arg == "--limit" && n == 0 {
 				return nil, fmt.Errorf("Flag --limit must be at least 1; omit it entirely to return everything")
+			}
+			// Caught here as well as in the bridge, so both malformed values of
+			// one flag are usage errors rather than one being reported as a
+			// runtime failure.
+			if n > bridge.MaxListLimit {
+				return nil, fmt.Errorf("Flag %s must not exceed %d", arg, bridge.MaxListLimit)
 			}
 			payload[strings.TrimPrefix(arg, "--")] = json.RawMessage(strconv.Itoa(n))
 			i += 2

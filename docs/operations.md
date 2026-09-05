@@ -60,8 +60,8 @@ Same as create except: `parentId` is not allowed on update.
 | `projectId` | string | Filter by project |
 | `tagId` | string | Filter by tag (`TODAY` for today's tasks) |
 | `includeDone` | boolean | Include completed tasks |
-| `limit` | integer ≥ 1 | Return at most this many items. Omit to return everything |
-| `offset` | integer ≥ 0 | Skip this many items before applying `limit` |
+| `limit` | integer 1–100000 | Return at most this many items. Omit to return everything |
+| `offset` | integer 0–100000 | Skip this many items before applying `limit` |
 | `full` | boolean | Return whole entities instead of the compact field set |
 | `source` | `active` \| `archived` \| `all` | Task pool (default: `active`) |
 
@@ -439,6 +439,24 @@ Measured against the same 284-task store:
 Projection alone is a modest win on tasks, because task payloads are mostly
 title and id — irreducible. **`limit` is the control that matters**, and
 filtering (`projectId`, `tagId`, `query`) matters more still.
+
+### Truncation is reported
+
+When `limit` cuts a list, the response says so rather than leaving a short list
+looking like a complete one:
+
+```console
+$ sp-local-bridge tasks list --limit 3
+[ ...3 tasks... ]
+Note: truncated — showing 3 of 176 matching items.     # stderr, so piped JSON stays clean
+```
+
+Over MCP the same fact arrives as a second text block and as `truncated`,
+`returned` and `matched` alongside the result. This matters because the tool
+description pushes callers toward passing a limit: without a signal, "how many
+tasks are in project X?" answered with `limit: 20` returns exactly 20 and reads
+as a complete count. `get_status.taskCount` cannot stand in — it counts the
+whole active pool and cannot answer a filtered question.
 
 There is deliberately **no default limit**. A silently capped list would be a
 wrong answer to "how many tasks do I have", and the count belongs to

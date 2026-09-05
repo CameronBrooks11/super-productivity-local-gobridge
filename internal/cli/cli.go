@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/CameronBrooks11/super-productivity-local-gobridge/internal/bridge"
@@ -47,6 +48,9 @@ func Usage() {
 	fmt.Println("  --project-id <id>            Filter by project")
 	fmt.Println("  --tag-id <id>                Filter by tag (use TODAY for today's tasks)")
 	fmt.Println("  --include-done               Include completed tasks")
+	fmt.Println("  --limit <n>                  Return at most n items")
+	fmt.Println("  --offset <n>                 Skip n items before applying --limit")
+	fmt.Println("  --full                       Return whole entities, not the compact field set")
 	fmt.Println("  --source <active|archived|all>  Task pool (default: active)")
 	fmt.Println("                               archived and all also need --include-done: SP applies")
 	fmt.Println("                               the done filter to archived tasks whatever their isDone")
@@ -57,15 +61,15 @@ func Usage() {
 	fmt.Println("  --tag-id <id>                Assign a tag (from tags list)")
 	fmt.Println("  --notes <text>               Set notes")
 	fmt.Println("  --due-day <YYYY-MM-DD>       Set due date")
-	fmt.Println("  --time-estimate <ms>         Set time estimate (milliseconds)")
+	fmt.Println("  --time-estimate <dur>        Set time estimate (1h30m, 90m, or raw ms)")
 	fmt.Println()
 	fmt.Println("Task update flags:")
 	fmt.Println("  --title <text>               New title")
 	fmt.Println("  --notes <text>               New notes")
 	fmt.Println("  --project-id <id>            Set project")
 	fmt.Println("  --due-day <YYYY-MM-DD>       Set due date")
-	fmt.Println("  --time-estimate <ms>         Set time estimate (milliseconds)")
-	fmt.Println("  --time-spent <ms>            Set time spent (milliseconds)")
+	fmt.Println("  --time-estimate <dur>        Set time estimate (1h30m, 90m, or raw ms)")
+	fmt.Println("  --time-spent <dur>           Set time spent (1h30m, 90m, or raw ms)")
 }
 
 // Run executes a CLI command. Returns exit code.
@@ -259,7 +263,12 @@ func handleTaskAdd(ctx context.Context, service *bridge.Service, args []string) 
 				fmt.Fprintln(os.Stderr, "Error: Flag --time-estimate requires a value")
 				return 2
 			}
-			payload["timeEstimate"] = json.RawMessage(args[i+1])
+			ms, err := parseDurationMs(args[i+1])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: --time-estimate %v\n", err)
+				return 2
+			}
+			payload["timeEstimate"] = json.RawMessage(strconv.FormatInt(ms, 10))
 			i += 2
 		default:
 			fmt.Fprintf(os.Stderr, "Error: Unknown flag: %s\n", flag)
@@ -328,14 +337,24 @@ func handleTaskUpdate(ctx context.Context, service *bridge.Service, args []strin
 				fmt.Fprintln(os.Stderr, "Error: Flag --time-estimate requires a value")
 				return 2
 			}
-			payload["timeEstimate"] = json.RawMessage(args[i+1])
+			ms, err := parseDurationMs(args[i+1])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: --time-estimate %v\n", err)
+				return 2
+			}
+			payload["timeEstimate"] = json.RawMessage(strconv.FormatInt(ms, 10))
 			i += 2
 		case "--time-spent":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: Flag --time-spent requires a value")
 				return 2
 			}
-			payload["timeSpent"] = json.RawMessage(args[i+1])
+			ms, err := parseDurationMs(args[i+1])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: --time-spent %v\n", err)
+				return 2
+			}
+			payload["timeSpent"] = json.RawMessage(strconv.FormatInt(ms, 10))
 			i += 2
 		case "--done":
 			payload["isDone"] = json.RawMessage("true")
@@ -432,10 +451,12 @@ func mustMarshal(v any) json.RawMessage {
 var taskListAllowed = map[string]bool{
 	"--query": true, "--project-id": true, "--tag-id": true,
 	"--include-done": true, "--source": true,
+	"--limit": true, "--offset": true, "--full": true,
 }
 
 var queryOnlyAllowed = map[string]bool{
 	"--query": true,
+	"--limit": true, "--offset": true, "--full": true,
 }
 
 func parseListFlags(args []string, allowed map[string]bool) (map[string]json.RawMessage, error) {
@@ -477,6 +498,19 @@ func parseListFlags(args []string, allowed map[string]bool) (map[string]json.Raw
 			}
 			payload["source"] = mustMarshal(args[i+1])
 			i += 2
+		case "--limit", "--offset":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("Flag %s requires a value", arg)
+			}
+			n, err := strconv.Atoi(args[i+1])
+			if err != nil || n < 0 {
+				return nil, fmt.Errorf("Flag %s requires a non-negative integer, got %q", arg, args[i+1])
+			}
+			payload[strings.TrimPrefix(arg, "--")] = json.RawMessage(strconv.Itoa(n))
+			i += 2
+		case "--full":
+			payload["full"] = json.RawMessage("true")
+			i++
 		default:
 			return nil, fmt.Errorf("Unknown flag: %s", arg)
 		}

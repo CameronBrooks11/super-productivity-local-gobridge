@@ -99,6 +99,10 @@ func (s *Server) registerTools() {
 		map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
 		readOnlyAnnotations)
 
+	// Responses carry a compact field set by default. SP returns whole entities
+	// and most of that is noise for a caller — a per-day time map that grows
+	// without bound, theme colours, worklog export column lists — so a single
+	// unfiltered list ran to roughly 24k tokens on a real store.
 	s.addTool("list_tasks", bridge.OpTaskList,
 		"List tasks with optional filters. Use list_projects or list_tags first to get IDs for filtering.",
 		map[string]any{
@@ -108,6 +112,9 @@ func (s *Server) registerTools() {
 				"projectId":   map[string]any{"type": "string", "description": "Filter by project ID (from list_projects, not a name)."},
 				"tagId":       map[string]any{"type": "string", "description": "Filter by tag ID (from list_tags). Use 'TODAY' for today's tasks."},
 				"includeDone": map[string]any{"type": "boolean", "description": "Include completed tasks (default: false). Also required to see anything at all from the archived pool, whether or not those tasks are done."},
+				"limit":       map[string]any{"type": "integer", "minimum": 0, "description": "Return at most this many items. Strongly preferred: an unfiltered list of a real store is tens of thousands of tokens. Ask for what you need — 20 is usually plenty — and narrow with the filters rather than reading everything. Omit only when you genuinely need every item."},
+				"offset":      map[string]any{"type": "integer", "minimum": 0, "description": "Skip this many items before applying limit, for paging through a filtered list."},
+				"full":        map[string]any{"type": "boolean", "description": "Return whole entities instead of the compact field set. Rarely needed; it multiplies the response size and adds fields (per-day time maps, theme colours, issue-integration ids) that are usually noise."},
 				"source":      map[string]any{"type": "string", "enum": []string{"active", "archived", "all"}, "description": "Task pool to query (default: active). source=archived and source=all both require includeDone=true to return archived tasks: SP applies the done filter to the archived pool regardless of a task's own isDone value, so source=archived alone returns an empty list even when tasks were just archived. An empty result here does not mean the archive failed."},
 			},
 			"additionalProperties": false,
@@ -265,7 +272,10 @@ func (s *Server) registerTools() {
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"query": map[string]any{"type": "string", "description": "Filter by name substring."},
+				"query":  map[string]any{"type": "string", "description": "Filter by name substring."},
+				"limit":  map[string]any{"type": "integer", "minimum": 0, "description": "Return at most this many items. Strongly preferred: an unfiltered list of a real store is tens of thousands of tokens. Ask for what you need — 20 is usually plenty — and narrow with the filters rather than reading everything. Omit only when you genuinely need every item."},
+				"offset": map[string]any{"type": "integer", "minimum": 0, "description": "Skip this many items before applying limit, for paging through a filtered list."},
+				"full":   map[string]any{"type": "boolean", "description": "Return whole entities instead of the compact field set. Rarely needed; it multiplies the response size and adds fields (per-day time maps, theme colours, issue-integration ids) that are usually noise."},
 			},
 			"additionalProperties": false,
 		},
@@ -276,7 +286,10 @@ func (s *Server) registerTools() {
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"query": map[string]any{"type": "string", "description": "Filter by name substring."},
+				"query":  map[string]any{"type": "string", "description": "Filter by name substring."},
+				"limit":  map[string]any{"type": "integer", "minimum": 0, "description": "Return at most this many items. Strongly preferred: an unfiltered list of a real store is tens of thousands of tokens. Ask for what you need — 20 is usually plenty — and narrow with the filters rather than reading everything. Omit only when you genuinely need every item."},
+				"offset": map[string]any{"type": "integer", "minimum": 0, "description": "Skip this many items before applying limit, for paging through a filtered list."},
+				"full":   map[string]any{"type": "boolean", "description": "Return whole entities instead of the compact field set. Rarely needed; it multiplies the response size and adds fields (per-day time maps, theme colours, issue-integration ids) that are usually noise."},
 			},
 			"additionalProperties": false,
 		},

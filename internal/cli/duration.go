@@ -1,0 +1,97 @@
+package cli
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// parseDurationMs converts a CLI time value to milliseconds.
+//
+// Super Productivity stores durations in milliseconds, so setting a 1h30m
+// estimate meant typing 5400000 — easy to get wrong by an order of magnitude
+// and impossible to read back.
+//
+// A bare integer is still milliseconds, so every existing invocation and script
+// keeps working. Anything with a unit suffix is parsed as a duration:
+//
+//	--time-estimate 5400000   -> 5400000ms (unchanged)
+//	--time-estimate 1h30m     -> 5400000ms
+//	--time-estimate 90m       -> 5400000ms
+//
+// Days are accepted as a convenience since time.ParseDuration stops at hours,
+// and a multi-day estimate is otherwise an awkward number of hours.
+func parseDurationMs(s string) (int64, error) {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return 0, fmt.Errorf("empty duration")
+	}
+
+	// A bare integer keeps its historical meaning: milliseconds.
+	if ms, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+		if ms < 0 {
+			return 0, fmt.Errorf("duration must not be negative")
+		}
+		return ms, nil
+	}
+
+	expanded, err := expandDays(trimmed)
+	if err != nil {
+		return 0, err
+	}
+
+	d, err := time.ParseDuration(expanded)
+	if err != nil {
+		return 0, fmt.Errorf("not a duration: use milliseconds (5400000) or a unit suffix (1h30m, 90m, 2d)")
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("duration must not be negative")
+	}
+	return d.Milliseconds(), nil
+}
+
+// expandDays rewrites a leading "<n>d" as hours, since time.ParseDuration has no
+// day unit. Only a leading day component is supported, which is how durations
+// are written in practice ("2d4h", never "4h2d").
+func expandDays(s string) (string, error) {
+	i := strings.IndexByte(s, 'd')
+	if i < 0 {
+		return s, nil
+	}
+	// "d" inside a unit we already understand (e.g. none today) or trailing
+	// text after the day marker that itself contains "d" is not supported.
+	if strings.ContainsRune(s[i+1:], 'd') {
+		return "", fmt.Errorf("only one day component is supported, e.g. 2d4h")
+	}
+	days, err := strconv.ParseFloat(s[:i], 64)
+	if err != nil {
+		return "", fmt.Errorf("not a duration: use milliseconds (5400000) or a unit suffix (1h30m, 90m, 2d)")
+	}
+	rest := s[i+1:]
+	if rest == "" {
+		return fmt.Sprintf("%gh", days*24), nil
+	}
+	return fmt.Sprintf("%gh%s", days*24, rest), nil
+}
+
+// formatDurationMs renders milliseconds the way the flags accept them, so a
+// value read back can be pasted straight into a command.
+func formatDurationMs(ms int64) string {
+	if ms == 0 {
+		return "0"
+	}
+	d := time.Duration(ms) * time.Millisecond
+	h := int64(d / time.Hour)
+	m := int64(d/time.Minute) % 60
+	switch {
+	case h > 0 && m > 0:
+		return fmt.Sprintf("%dh%dm", h, m)
+	case h > 0:
+		return fmt.Sprintf("%dh", h)
+	case m > 0:
+		return fmt.Sprintf("%dm", m)
+	default:
+		return fmt.Sprintf("%ds", int64(d/time.Second))
+	}
+}

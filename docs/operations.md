@@ -385,3 +385,73 @@ port is a hardcoded 3876.
 There is no `--update` mode. Fixtures are committed to a public repository and
 live responses carry real task titles, project names and notes, so fixtures are
 written by hand from the shapes the failure messages report.
+
+## Response size
+
+Super Productivity returns whole entities, and the whole entity is rarely what a
+caller wants. On a store of 284 tasks an unfiltered `list_tasks` with
+`includeDone` was about 94KB — roughly 24k tokens — and most of it was fields
+nothing consumes: a per-day time map that grows for the life of a task, theme
+colours, worklog export column lists.
+
+SP has no server-side projection or paging: `limit`, `offset`, `page` and
+`fields` are all ignored by the API. So the bridge does it.
+
+### Compact by default
+
+List responses carry a reduced field set unless you ask for more:
+
+| Entity | Returned by default |
+|---|---|
+| task | `id`, `title`, `isDone`, `projectId`, `tagIds`, `parentId`, `subTaskIds`, `timeSpent`, `timeEstimate`, `notes`, `dueDay`, `doneOn` |
+| project | `id`, `title`, `isArchived` |
+| tag | `id`, `title`, `taskIds` |
+
+Fields absent from a response stay absent rather than becoming null — SP
+distinguishes the two, and so does the rest of the bridge.
+
+`full: true` (`--full`) returns entities untouched. It is rarely what you want:
+it multiplies the response and adds fields that are usually noise.
+
+### Limit and offset
+
+```bash
+sp-local-bridge tasks list --include-done --limit 20
+sp-local-bridge tasks list --limit 20 --offset 20   # next page
+```
+
+Measured against the same 284-task store:
+
+| Request | Size | ≈ tokens |
+|---|---|---|
+| `list_tasks includeDone` before this change | 94KB | 24,000 |
+| `list_tasks includeDone` compact | 74KB | 18,500 |
+| `list_tasks includeDone limit=20` | 5.9KB | 1,500 |
+| `list_projects` before / compact | 15.5KB / 1.1KB | 3,900 / 270 |
+
+Projection alone is a modest win on tasks, because task payloads are mostly
+title and id — irreducible. **`limit` is the control that matters**, and
+filtering (`projectId`, `tagId`, `query`) matters more still.
+
+There is deliberately **no default limit**. A silently capped list would be a
+wrong answer to "how many tasks do I have", and the count belongs to
+`get_status.taskCount` rather than to the length of a truncated array.
+
+## Durations
+
+Time values are milliseconds in the API, which made a 1h30m estimate
+`--time-estimate 5400000` — easy to get wrong by an order of magnitude and
+impossible to read back.
+
+The CLI now accepts either form:
+
+```bash
+sp-local-bridge tasks update <id> --time-estimate 1h30m
+sp-local-bridge tasks update <id> --time-estimate 90m
+sp-local-bridge tasks update <id> --time-estimate 5400000   # still milliseconds
+```
+
+A bare integer keeps its original meaning, so existing scripts are unaffected.
+A unit suffix (`s`, `m`, `h`, and a leading `d` for days) is parsed as a
+duration. MCP callers continue to send integer milliseconds, and the tool
+descriptions carry conversion examples.

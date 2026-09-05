@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `limit`, `offset` and `full` on `list_tasks`, `list_projects` and `list_tags`
+  (`--limit`, `--offset`, `--full` on the CLI). SP ignores paging and field
+  selection, so the bridge applies them. There is no default limit: a silently
+  capped list would be a wrong answer to "how many tasks do I have" (#29)
+- List responses carry a compact field set by default, dropping fields nothing
+  consumes — the per-day time map that grows for the life of a task, theme
+  colours, worklog export column lists. `full` returns entities untouched.
+  On a 284-task store `list_tasks` with `includeDone` goes from ~24k tokens to
+  ~18.5k compact, or ~1.5k with `limit=20`; `list_projects` from ~3.9k to ~270
+  (#29)
+- CLI time flags accept durations: `--time-estimate 1h30m`, `90m`, `2d`. A bare
+  integer is still milliseconds, so existing scripts are unaffected (#10)
+
 - `make test-live`, a build-tagged suite that checks the client against a running
   Super Productivity: that every field the bridge depends on is still present
   with the expected type, that a missing task and a missing route still report

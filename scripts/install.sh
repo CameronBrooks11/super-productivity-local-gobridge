@@ -50,7 +50,16 @@ trap 'rm -rf "$TMP"' EXIT
 
 if [[ "$FROM_SOURCE" == "1" ]]; then
   # Build the checkout containing this script.
-  REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  # Piping the script (curl | bash) leaves BASH_SOURCE unset, and there is no
+  # checkout to build in that case.
+  SELF="${BASH_SOURCE[0]:-}"
+  if [[ -z "$SELF" ]]; then
+    echo "Error: --from-source needs the script to be run from a checkout," >&2
+    echo "but it was piped from stdin, so there is no source tree to build." >&2
+    echo "Clone the repository and run: bash scripts/install.sh --from-source" >&2
+    exit 1
+  fi
+  REPO_ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
   if [[ ! -f "$REPO_ROOT/go.mod" ]]; then
     echo "Error: --from-source needs a checkout; no go.mod at ${REPO_ROOT}." >&2
     exit 1
@@ -168,7 +177,14 @@ for alias in "${ALIASES[@]}"; do
 done
 
 echo ""
-echo "✓ Installed ${BINARY} v${VERSION#v} to ${INSTALL_DIR}/${BINARY}"
+# git describe --always yields a bare SHA on a shallow or tagless clone, and
+# "dev" when git is unavailable; neither should be printed as a version number.
+if [[ "${VERSION}" =~ ^v?[0-9]+\.[0-9]+ ]]; then
+  DISPLAY_VERSION="v${VERSION#v}"
+else
+  DISPLAY_VERSION="${VERSION}"
+fi
+echo "✓ Installed ${BINARY} ${DISPLAY_VERSION} to ${INSTALL_DIR}/${BINARY}"
 echo "  Aliases: ${ALIASES[*]}"
 echo ""
 

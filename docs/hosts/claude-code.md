@@ -15,7 +15,13 @@ This adds an entry to `~/.claude.json` at **user scope**, making the bridge avai
 | Linux / macOS | `~/.claude.json` |
 | Windows | `%USERPROFILE%\.claude.json` |
 
-The file also holds unrelated Claude Code state. The bridge parses it, adds one key, and writes it back atomically with a `.bak` alongside; numbers are preserved as written rather than round-tripped through floats.
+The file also holds unrelated Claude Code state. The bridge parses it, adds one key, and writes it back atomically with a `.bak` alongside (copied with the original's permissions); numbers are preserved as written rather than round-tripped through floats.
+
+::: warning Close Claude Code first
+Unlike the other hosts, Claude Code **rewrites this file while it runs**. `configure` re-checks the file immediately before writing and aborts rather than reverting a concurrent change, but a session that was already open can still overwrite the entry when it exits.
+
+Close all Claude Code sessions before running `configure claude-code`. If `sp-local-bridge doctor` later reports the host as unconfigured, that is what happened — re-run the command with no sessions open.
+:::
 
 ## Scopes
 

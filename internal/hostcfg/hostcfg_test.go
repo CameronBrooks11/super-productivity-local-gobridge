@@ -616,3 +616,61 @@ func TestReadJSON_PreservesIntegerLiterals(t *testing.T) {
 		t.Fatalf("integer literal not preserved: %s", num.String())
 	}
 }
+
+// json.Decoder stops at the first value, so without an explicit check a file
+// corrupted by a doubled write would parse as its leading object and then be
+// rewritten with the remainder discarded.
+func TestReadJSON_RejectsTrailingData(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "doubled.json")
+	os.WriteFile(tmp, []byte(`{"a":1}{"b":2}`), 0o644)
+	if _, err := readJSON(tmp); err == nil {
+		t.Fatal("expected an error for data after the top-level value")
+	}
+}
+
+// Host configs can hold account identifiers, so the .bak must not be more
+// permissive than the file it copies.
+func TestBackup_PreservesMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not meaningful on Windows")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(`{"a":1}`), 0o600); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	backup(path)
+	fi, err := os.Stat(path + ".bak")
+	if err != nil {
+		t.Fatalf("backup not created: %v", err)
+	}
+	if got := fi.Mode().Perm(); got != 0o600 {
+		t.Fatalf("backup widened permissions: got %v, want -rw-------", got)
+	}
+}
+
+func TestConcurrentModification_DetectsChange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "live.json")
+	os.WriteFile(path, []byte(`{"a":1}`), 0o644)
+	before := fingerprint(path)
+	if concurrentModification(path, before) {
+		t.Fatal("unchanged file reported as modified")
+	}
+	os.WriteFile(path, []byte(`{"a":1,"b":2}`), 0o644)
+	if !concurrentModification(path, before) {
+		t.Fatal("changed file not detected")
+	}
+}
+
+func TestAppDataDir_FallsBackWhenUnset(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("APPDATA", "")
+	got := appDataDir()
+	if !filepath.IsAbs(got) {
+		t.Fatalf("fallback must be absolute, got %q", got)
+	}
+	if want := filepath.Join(home, "AppData", "Roaming"); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

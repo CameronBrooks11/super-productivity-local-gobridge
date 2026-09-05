@@ -152,21 +152,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.1] - 2026-05-31
 
-### Fixed
-
-- `tasks add` parses `--project-id`, `--tag-id`, `--notes`, `--due-day` and
-  `--time-estimate` instead of joining every argument into the task title. An
-  unknown flag is now rejected rather than silently becoming part of the title
-- Every subcommand handler (`tasks`, `projects`, `tags`, `update`) intercepts
-  `-h`/`--help` and prints usage, instead of erroring or creating a task named
-  after the help flag
-- MCP tool descriptions for `list_tasks`, `create_task` and `update_task` point
-  agents at `list_projects` and `list_tags` to obtain ids (#7, partial:
-  description-side mitigation)
-
 ### Added
 
 - Issue templates for bug reports and enhancements
+
+### Changed
+
+- `tasks add` takes the title as a single argument and parses the rest as
+  flags, where it previously joined every trailing argument into the title.
+  `tasks add buy milk` created a task called "buy milk" in 0.1.0 and fails in
+  0.1.1 with `Unknown flag: milk`, so an unquoted multi-word title has to be
+  quoted. Breaking for scripts that relied on the old joining
+
+### Fixed
+
+- `tasks add` parses `--project-id`, `--tag-id`, `--notes`, `--due-day` and
+  `--time-estimate` instead of folding them into the task title
+- `tasks`, `tasks update`, `projects` and `tags` intercept `-h`/`--help` and
+  print usage, instead of erroring or creating a task named after the help
+  flag. `health`, `status` and `doctor` were not changed and still ignore
+  `--help`
+- MCP tool descriptions for `list_tasks`, `create_task` and `update_task` point
+  agents at `list_projects` and `list_tags` to obtain ids (#7, partial:
+  description-side mitigation)
 
 ## [0.1.0] - 2026-05-31
 
@@ -211,6 +219,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - 2026-05-31
 
 Python release (separate repo). See [super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge) for history.
+
+The Go bridge skips 0.2.x. The Python bridge released 0.1.x through 0.2.2
+under the same `sp-local-bridge` install name, so reusing those numbers here
+would make a version string ambiguous between two different programs. It
+resumes at 0.3.0.
 
 [Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.0...HEAD
 [0.3.0]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.1.1...v0.3.0

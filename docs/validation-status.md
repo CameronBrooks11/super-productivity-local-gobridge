@@ -9,14 +9,22 @@ the version that was validated, not necessarily the latest release.
 
 | Platform | CI Tests | Artifact Validation |
 |----------|----------|---------------------|
-| Linux x86_64 | Passing | v0.3.0 validated (2026-09-05) |
-| macOS arm64 | Passing | Archive checksum verified only |
-| macOS x86_64 | Passing | Archive checksum verified only |
-| Windows x86_64 | Passing | Archive checksum verified only |
+| Linux x86_64 | `ubuntu-latest` | v0.3.0 validated (2026-09-05) |
+| Linux arm64 | Not run | Archive checksum verified only |
+| macOS arm64 | `macos-latest` | Archive checksum verified only |
+| macOS x86_64 | Not run | Archive checksum verified only |
+| Windows x86_64 | `windows-latest` | Archive checksum verified only |
+| Windows arm64 | Not run | Archive checksum verified only |
+
+The CI matrix is three runner images — `ubuntu-latest`, `macos-latest` and
+`windows-latest` — so three of the six published targets are exercised by CI and
+three are built but never run there. The rows name the image rather than assert
+which architecture each currently maps to.
 
 "Archive checksum verified only" means the published archive was downloaded and
 matched `checksums.txt`, but the binary inside it has not been run on that
-platform. All six v0.3.0 archives were verified this way on 2026-09-05.
+platform. All six v0.3.0 archives were verified this way on 2026-09-05; Linux
+x86_64 additionally got the full validation below.
 
 ## Host Application Validation
 
@@ -46,12 +54,13 @@ Linux x86_64, 2026-09-05, against the published release
 - The installed binary is byte-identical to the separately downloaded archive
   contents (same SHA-256)
 - `--version` reports `0.3.0` with the release commit and build date
-- `doctor` passes every check: PATH visibility, health, status, task list, MCP
-  self-check (16 tools), multicall aliases
+- `doctor` passes every check: PATH visibility, host configs, health, status,
+  task list, MCP self-check (16 tools), multicall aliases
 - `doctor --deep` reports store integrity OK against a live store of 284 active
-  and 17 archived tasks, with all 284 active tasks referenced by the project and
-  tag indexes: no dangling references, orphaned entities, duplicates or
-  unresolved anomalies
+  and 17 archived tasks, with all 284 referenced by the project and tag indexes
+  or as a subtask of another task, which is the reference set the check builds:
+  no dangling references, orphaned entities, duplicates or unresolved
+  anomalies
 - `configure --dry-run` generates config for all four hosts: `claude-code`,
   `claude-desktop`, `vscode-copilot`, `codex`
 - Raw MCP stdio: `initialize` returns protocol `2024-11-05` and
@@ -71,14 +80,19 @@ modify, archive or delete anything.
 - `TestLive_ProjectFields`, `TestLive_TagFields`, `TestLive_StatusAndHealthFields`
   — same check for the remaining entity types
 - `TestLive_NotFoundCodesAreDistinct` — a missing task and a missing route still
-  report different error codes, which is the regression #37 fixed
-- `TestLive_FixturesDoNotInventFields` — all seven committed response fixtures
-  claim only fields SP actually returns
+  report different error codes, which is the bug #37 fixed
+- `TestLive_FixturesDoNotInventFields` — all seven committed success-response
+  fixtures claim only fields SP actually returns. Fields that are null
+  throughout the store have their presence checked but not their type, which
+  the run reports
+- `TestLive_StoreHasSomethingToCheck` — guards against the suite passing
+  vacuously against an empty store
 
 ## What "Tested" Means
 
-- **Config Generation**: The `print-config` command produces correct output, verified by automated tests.
-- **Config Write**: JSON configs are parsed before mutation; Codex TOML uses structural guard tests plus backup and atomic-write tests.
+- **Config Generation**: Automated tests run `print-config` for the host and
+  assert it succeeds. They check the exit status, not the content of the output.
+- **Config Write**: JSON configs are parsed before mutation; Codex TOML uses structural guard tests plus backup and atomic-write tests. For `claude-code` this additionally covers preserving foreign keys and large integers in `~/.claude.json`.
 - **Artifact Validation**: Release binary downloaded, checksum-verified, installed, and exercised via raw MCP stdio protocol.
 - **Live Host Session**: A human has connected the bridge inside the actual host application and confirmed tool invocations work through the host's MCP client.
 
@@ -99,4 +113,6 @@ v0.1.1. Not repeated for v0.3.0.
 The Go bridge implements all 16 MCP tools from the Python bridge, whose last
 release was v0.2.2. That project is archived and read-only, and its PyPI
 releases are yanked; the Go bridge is where the work continues. Black-box MCP
-tests verify request/response shapes match the Python SDK's output format.
+tests check the request and response shapes against expectations written by
+hand in this repository; nothing here compares output against a running Python
+bridge.

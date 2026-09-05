@@ -519,6 +519,13 @@ func TestRunPrintConfig_VSCode(t *testing.T) {
 	}
 }
 
+func TestRunPrintConfig_ClaudeCode(t *testing.T) {
+	code := RunPrintConfig([]string{"claude-code"})
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+}
+
 func TestBuildEntry_ClaudeCodeHasType(t *testing.T) {
 	entry := buildEntry(HostClaudeCode)
 	if entry["type"] != "stdio" {

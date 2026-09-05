@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-05
+
 ### Added
 
 - `limit`, `offset` and `full` on `list_tasks`, `list_projects` and `list_tags`
@@ -148,6 +150,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `install.sh --from-source` fails with a clear message when piped from stdin
   (`curl | bash`), where `BASH_SOURCE` is unset and there is no checkout to build
 
+## [0.1.1] - 2026-05-31
+
+### Added
+
+- Issue templates for bug reports and enhancements
+
+### Changed
+
+- `tasks add` takes the title as a single argument and parses the rest as
+  flags, where it previously joined every trailing argument into the title.
+  `tasks add buy milk` created a task called "buy milk" in 0.1.0 and fails in
+  0.1.1 with `Error: Unknown flag: milk`, so an unquoted multi-word title has
+  to be quoted. Breaking for scripts that relied on the old joining
+
+### Fixed
+
+- `tasks add` parses `--project-id`, `--tag-id`, `--notes`, `--due-day` and
+  `--time-estimate` instead of folding them into the task title
+- `tasks`, `tasks update`, `projects` and `tags` intercept `-h`/`--help` and
+  print usage, instead of erroring or creating a task named after the help
+  flag. `health`, `status` and `doctor` were not changed and still ignore
+  `--help`
+- MCP tool descriptions for `list_tasks`, `create_task` and `update_task` point
+  agents at `list_projects` and `list_tags` to obtain ids (#7, partial:
+  description-side mitigation)
+
 ## [0.1.0] - 2026-05-31
 
 ### Added
@@ -192,6 +220,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Python release (separate repo). See [super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge) for history.
 
-[Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.1.0...HEAD
+The Go bridge skips 0.2.x because the Python bridge had already spent it:
+0.2.0 in May 2026, and 0.2.1 and 0.2.2 on 2026-09-05 when the name was
+reserved on PyPI. The Go bridge's own 0.1.0 and 0.1.1 above do collide with
+Python tags of the same name, which is the confusion 0.3.0 stops repeating.
+
+[Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.1.1...v0.3.0
+[0.1.1]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/tag/v0.1.0
 [0.2.0]: https://github.com/CameronBrooks11/super-productivity-local-bridge/releases/tag/v0.2.0

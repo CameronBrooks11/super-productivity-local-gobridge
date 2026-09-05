@@ -96,7 +96,7 @@ sp-local-bridge doctor
 
 ::: danger Rolling back lands on an archived project
 The Python bridge is read-only. It will not receive fixes, and it is pinned to
-whatever Super Productivity behaviour existed at v0.2.0. Treat a rollback as a
+whatever Super Productivity behaviour existed at v0.2.1. Treat a rollback as a
 stopgap while a problem here is reported, not as a destination.
 :::
 
@@ -163,16 +163,24 @@ even once the main binary is gone.
 
 ### 2. Install the Python bridge
 
-It is not on PyPI; install from its release wheel:
+The name `sp-local-bridge` is registered on PyPI, but the release is
+**yanked** — it holds the name so nobody else can take it, and resolvers skip
+it so nothing installs it by accident. An exact pin still works if you need it:
 
 ```sh
-uv tool install https://github.com/CameronBrooks11/super-productivity-local-bridge/releases/download/v0.2.0/sp_local_bridge-0.2.0-py3-none-any.whl
+uv tool install 'sp-local-bridge==0.2.1'
+```
+
+Or install the release wheel directly, which does not depend on PyPI at all:
+
+```sh
+uv tool install https://github.com/CameronBrooks11/super-productivity-local-bridge/releases/download/v0.2.1/sp_local_bridge-0.2.1-py3-none-any.whl
 ```
 
 Or from a checkout:
 
 ```sh
-git clone --branch v0.2.0 \
+git clone --branch v0.2.1 \
   https://github.com/CameronBrooks11/super-productivity-local-bridge.git
 cd super-productivity-local-bridge
 scripts/install.sh

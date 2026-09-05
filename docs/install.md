@@ -18,8 +18,9 @@ Download the appropriate archive for your platform from the [Releases page](http
 
 ### Platform Matrix
 
-Release archives are versioned. Replace `VERSION` with the version you want
-from the [Releases page](https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases):
+Release archives are versioned. The commands below resolve the latest release
+automatically; set `VERSION` yourself to install a specific one from the
+[Releases page](https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases):
 
 | Platform | Archive |
 |----------|---------|
@@ -33,9 +34,10 @@ from the [Releases page](https://github.com/CameronBrooks11/super-productivity-l
 ### Linux
 
 ```sh
-# Resolve the latest release version
-VERSION="$(curl -sL https://api.github.com/repos/CameronBrooks11/super-productivity-local-gobridge/releases/latest \
-  | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')"
+# Resolve the latest release, or set VERSION=x.y.z to pin one
+VERSION="${VERSION:-$(curl -sL https://api.github.com/repos/CameronBrooks11/super-productivity-local-gobridge/releases/latest \
+  | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')}"
+: "${VERSION:?could not resolve a release version - set VERSION=x.y.z manually}"
 
 # Download archive and checksums
 curl -LO "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/download/v${VERSION}/sp-local-bridge_${VERSION}_linux_amd64.tar.gz"
@@ -53,9 +55,10 @@ sudo mv sp-local-bridge /usr/local/bin/
 ### macOS
 
 ```sh
-# Resolve the latest release version
-VERSION="$(curl -sL https://api.github.com/repos/CameronBrooks11/super-productivity-local-gobridge/releases/latest \
-  | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')"
+# Resolve the latest release, or set VERSION=x.y.z to pin one
+VERSION="${VERSION:-$(curl -sL https://api.github.com/repos/CameronBrooks11/super-productivity-local-gobridge/releases/latest \
+  | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')}"
+: "${VERSION:?could not resolve a release version - set VERSION=x.y.z manually}"
 
 # Download archive and checksums (adjust darwin_arm64 to darwin_amd64 for Intel Macs)
 curl -LO "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/download/v${VERSION}/sp-local-bridge_${VERSION}_darwin_arm64.tar.gz"

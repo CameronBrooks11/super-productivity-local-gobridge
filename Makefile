@@ -21,9 +21,13 @@ test:
 # committed fixtures do not claim fields SP never returns. Excluded from `test`
 # and from CI, which has no SP to talk to. Read-only (GET) — see AGENTS.md.
 test-live:
-	@command -v curl >/dev/null 2>&1 && curl -sf http://127.0.0.1:3876/health >/dev/null 2>&1 || \
-	  { echo "Super Productivity is not reachable on 127.0.0.1:3876."; \
-	    echo "Start it and enable Settings -> Sync & Export -> Local REST API."; exit 1; }
+	@command -v curl >/dev/null 2>&1 || \
+	  { echo "curl is required for the preflight check."; exit 1; }
+	@url="$${SP_BASE_URL:-http://127.0.0.1:3876}"; \
+	  curl -sf "$$url/health" >/dev/null 2>&1 || \
+	  { echo "Super Productivity is not reachable at $$url."; \
+	    echo "Start it and enable Settings -> Sync & Export -> Local REST API,"; \
+	    echo "or set SP_BASE_URL to point elsewhere."; exit 1; }
 	go test -tags live ./... -count=1 -run TestLive -v
 
 test-cover:
@@ -42,6 +46,10 @@ fmt-check:
 
 vet:
 	go vet ./...
+	@# The live suite is excluded from ./... by its build tag, so nothing else
+	@# type-checks it. Without this, renaming a client method leaves CI green and
+	@# breaks the suite at the moment it is most needed: just before a release.
+	go vet -tags live ./...
 
 race:
 	go test -race ./... -count=1

@@ -13,8 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Super Productivity: that every field the bridge depends on is still present
   with the expected type, that a missing task and a missing route still report
   different codes, and that no committed fixture claims a field SP never
-  returns. Excluded from `go test ./...` and from CI, which has no SP to reach.
+  returns. Excluded from `go test ./...` and from CI, which has no SP to reach,
+  though `make vet` type-checks it so a rename cannot break it unnoticed.
   Read-only (#30)
+- Response fixtures now carry the `{"ok":true,"data":...}` envelope SP actually
+  sends. As bare arrays they exercised a branch of `translateResponse` that a
+  real response never takes (#30)
 
 - `doctor --deep` cross-references task entities against the project and tag
   indexes that point at them, reporting dangling references and orphaned active

@@ -29,6 +29,7 @@ type fieldSpec struct {
 	name     string
 	jsonType string // "string", "number", "bool", "array", "object"
 	optional bool   // absent on some objects, which is legal
+	nullable bool   // SP may send an explicit null here
 }
 
 // jsonType names the decoded type of a JSON value the way a response describes
@@ -102,10 +103,13 @@ func checkFields(t *testing.T, items []map[string]any, label string, specs []fie
 				continue
 			}
 			if got := jsonType(v); got != spec.jsonType {
-				// A null in a nullable slot is not a type change.
-				if got == "null" {
+				if got == "null" && spec.nullable {
 					continue
 				}
+				// Otherwise a null is a real mismatch. Exempting it blindly hid
+				// the drift that matters most: doctor --deep reads taskIds and
+				// subTaskIds without checking, so "taskIds": null breaks it
+				// while a blanket exemption would report the field as fine.
 				wrong[got]++
 			}
 		}
@@ -171,19 +175,13 @@ func TestLive_TagFields(t *testing.T) {
 
 func TestLive_StatusAndHealthFields(t *testing.T) {
 	client := liveClient(t)
-	status, ok := client.Status(context.Background()).Data.(map[string]any)
-	if !ok {
-		t.Fatal("status did not return an object")
-	}
+	status := liveObject(t, client.Status(context.Background()), "status")
 	checkFields(t, []map[string]any{status}, "status", []fieldSpec{
 		{name: "taskCount", jsonType: "number"},
-		{name: "currentTaskId", jsonType: "string", optional: true},
+		{name: "currentTaskId", jsonType: "string", optional: true, nullable: true},
 	})
 
-	health, ok := client.Health(context.Background()).Data.(map[string]any)
-	if !ok {
-		t.Fatal("health did not return an object")
-	}
+	health := liveObject(t, client.Health(context.Background()), "health")
 	checkFields(t, []map[string]any{health}, "health", []fieldSpec{
 		{name: "server", jsonType: "string"},
 		{name: "rendererReady", jsonType: "bool"},
@@ -226,28 +224,89 @@ func TestLive_NotFoundCodesAreDistinct(t *testing.T) {
 // repository and live responses carry real task titles, project names and
 // notes, so they are written by hand from the shapes this test reports rather
 // than copied from a store.
+// knownOptional names fields SP returns only when the user has set them. On a
+// store where none are set they are absent everywhere, and requiring every
+// fixture field to appear live would then report them as fiction — with the
+// documented remedy being to delete a real field from the fixture.
+//
+// Listing one here is a claim that SP has the field, checked whenever a store
+// does contain it: presence is excused, type is not.
+var knownOptional = map[string]bool{
+	"notes":            true,
+	"parentId":         true,
+	"dueDay":           true,
+	"doneOn":           true,
+	"modified":         true,
+	"subTasks":         true,
+	"issueId":          true,
+	"issueType":        true,
+	"issueProviderId":  true,
+	"issueLastUpdated": true,
+}
+
 func TestLive_FixturesDoNotInventFields(t *testing.T) {
 	client := liveClient(t)
 	ctx := context.Background()
 
+	// Each pool is fetched inside its own subtest. Fetching them all up front
+	// meant one empty collection — a store with no tags — skipped every other
+	// fixture check and still exited 0, so the guard against fiction silently
+	// did nothing.
+	// Each fetch takes the subtest's own *testing.T. Passing the parent's would
+	// route a skip or failure to the parent, which is how one empty collection
+	// came to swallow every other check.
 	cases := []struct {
 		fixture string
-		live    []map[string]any
+		live    func(t *testing.T) []map[string]any
 	}{
-		{"task-list-ok.json", objects(t, client.ListTasks(ctx,
-			map[string]string{"source": "active", "includeDone": "true"}), "task")},
-		{"project-list-ok.json", objects(t, client.ListProjects(ctx, nil), "project")},
-		{"tag-list-ok.json", objects(t, client.ListTags(ctx, nil), "tag")},
-		{"status-ok.json", []map[string]any{liveObject(t, client.Status(ctx), "status")}},
-		{"health-ok.json", []map[string]any{liveObject(t, client.Health(ctx), "health")}},
+		{"task-list-ok.json", func(t *testing.T) []map[string]any { return liveTasks(t, client) }},
+		{"task-create-ok.json", func(t *testing.T) []map[string]any { return liveTasks(t, client) }},
+		{"task-update-ok.json", func(t *testing.T) []map[string]any { return liveTasks(t, client) }},
+		{"project-list-ok.json", func(t *testing.T) []map[string]any {
+			return objects(t, client.ListProjects(ctx, nil), "project")
+		}},
+		{"tag-list-ok.json", func(t *testing.T) []map[string]any {
+			return objects(t, client.ListTags(ctx, nil), "tag")
+		}},
+		{"status-ok.json", func(t *testing.T) []map[string]any {
+			return []map[string]any{liveObject(t, client.Status(ctx), "status")}
+		}},
+		{"health-ok.json", func(t *testing.T) []map[string]any {
+			return []map[string]any{liveObject(t, client.Health(ctx), "health")}
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.fixture, func(t *testing.T) {
+			live := tc.live(t)
 			for _, obj := range fixtureObjects(t, tc.fixture) {
-				compareToLive(t, obj, tc.live)
+				compareToLive(t, obj, live)
 			}
 		})
 	}
+}
+
+// liveTasks unions both pools. Some fields only ever appear on archived tasks
+// (subTasks) and some only on active ones, so checking a fixture against one
+// pool alone invents drift that is not there.
+func liveTasks(t *testing.T, client *Client) []map[string]any {
+	t.Helper()
+	ctx := context.Background()
+	all := objects(t, client.ListTasks(ctx, map[string]string{
+		"source": "active", "includeDone": "true",
+	}), "task/active")
+	archived := client.ListTasks(ctx, map[string]string{
+		"source": "archived", "includeDone": "true",
+	})
+	if archived.OK {
+		if arr, ok := archived.Data.([]any); ok {
+			for _, item := range arr {
+				if obj, ok := item.(map[string]any); ok {
+					all = append(all, obj)
+				}
+			}
+		}
+	}
+	return all
 }
 
 // liveObject unwraps a single-object response.
@@ -271,20 +330,23 @@ func fixtureObjects(t *testing.T, name string) []map[string]any {
 	if err != nil {
 		t.Fatalf("reading fixture: %v", err)
 	}
+	var envelope struct {
+		Data json.RawMessage `json:"data"`
+	}
+	body := raw
+	if err := json.Unmarshal(raw, &envelope); err == nil && envelope.Data != nil {
+		body = envelope.Data
+	}
+	// data may be a list or a single object; both are real SP shapes.
 	var asList []map[string]any
-	if err := json.Unmarshal(raw, &asList); err == nil {
+	if err := json.Unmarshal(body, &asList); err == nil {
 		return asList
 	}
-	var envelope struct {
-		Data map[string]any `json:"data"`
+	var one map[string]any
+	if err := json.Unmarshal(body, &one); err != nil {
+		t.Fatalf("parsing fixture %s: %v", name, err)
 	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		t.Fatalf("parsing fixture: %v", err)
-	}
-	if envelope.Data == nil {
-		t.Fatalf("fixture %s has no data object", name)
-	}
-	return []map[string]any{envelope.Data}
+	return []map[string]any{one}
 }
 
 // compareToLive fails for any field the fixture claims that SP does not return,
@@ -306,6 +368,10 @@ func compareToLive(t *testing.T, fixture map[string]any, live []map[string]any) 
 	for k, v := range fixture {
 		types, exists := liveTypes[k]
 		if !exists {
+			if knownOptional[k] {
+				t.Logf("field %q is not set anywhere in this store, so its type could not be checked", k)
+				continue
+			}
 			t.Errorf("fixture claims field %q, which SP never returns — the offline tests are asserting fiction", k)
 			continue
 		}

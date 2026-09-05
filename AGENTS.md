@@ -71,8 +71,10 @@ the health fixture invented `status` and a test asserted it, so fixture and test
 were wrong together and the suite stayed green; task fixtures carried a
 `plannedAt` that never appears in a response.
 
-`make test-live` checks every committed fixture against a running SP and fails
-on any field SP does not return. Run it after touching a fixture, and before a
+`make test-live` checks every response fixture the read-only suite can reach
+against a running SP, and fails on any field SP does not return. Request
+fixtures (`*-request.json`) and error fixtures are not checked — they describe
+what we send, or a failure a read-only run cannot provoke. Run it after touching a fixture, and before a
 release. There is deliberately no auto-update mode: regenerating from a live
 store would commit personal data.
 

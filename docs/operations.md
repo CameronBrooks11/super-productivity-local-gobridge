@@ -365,9 +365,14 @@ checks two things:
   `task.subTaskIds`, `project.taskIds`, `tag.title`, and the rest. A required
   field missing from even one object fails, because the code reads it without
   checking.
-- **The committed fixtures do not invent fields.** Every field a fixture claims
+- **The response fixtures do not invent fields.** Every field a fixture claims
   must exist in a real response with a matching type. Fixtures may be smaller
   than reality; they may not be fiction.
+
+  Fields SP returns only when set — `notes`, `dueDay`, `parentId` and the like —
+  are excused when a store has none, and still type-checked on a store that has
+  some. Request fixtures and error fixtures are not covered: they describe what
+  the bridge sends, or a failure a read-only run cannot provoke.
 
 It also asserts that a missing task and a missing route still report different
 codes, since the `archive` existence guard depends on telling them apart.

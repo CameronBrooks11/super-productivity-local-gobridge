@@ -22,8 +22,8 @@ Release archives are versioned, with `VERSION` standing for the release number
 (`0.3.0`, not `v0.3.0`) as listed on the
 [Releases page](https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases).
 The Linux and macOS commands below fill it in with the latest release; set
-`VERSION` beforehand to install a specific one, and substitute it by hand in the
-Windows steps:
+`VERSION` beforehand to install a specific one. The Windows steps have no such
+command, so substitute it by hand in the archive names below:
 
 | Platform | Archive |
 |----------|---------|
@@ -38,8 +38,7 @@ Windows steps:
 
 ```sh
 # Resolve the latest release, or set VERSION=x.y.z to pin one
-VERSION="${VERSION:-$(curl -sL https://api.github.com/repos/CameronBrooks11/super-productivity-local-gobridge/releases/latest \
-  | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')}"
+VERSION="${VERSION:-$(curl -sL https://api.github.com/repos/CameronBrooks11/super-productivity-local-gobridge/releases/latest | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')}"
 VERSION="${VERSION#v}"
 [ -n "$VERSION" ] || echo "Could not resolve a release version; set VERSION=x.y.z and re-run." >&2
 
@@ -60,8 +59,7 @@ sudo mv sp-local-bridge /usr/local/bin/
 
 ```sh
 # Resolve the latest release, or set VERSION=x.y.z to pin one
-VERSION="${VERSION:-$(curl -sL https://api.github.com/repos/CameronBrooks11/super-productivity-local-gobridge/releases/latest \
-  | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')}"
+VERSION="${VERSION:-$(curl -sL https://api.github.com/repos/CameronBrooks11/super-productivity-local-gobridge/releases/latest | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')}"
 VERSION="${VERSION#v}"
 [ -n "$VERSION" ] || echo "Could not resolve a release version; set VERSION=x.y.z and re-run." >&2
 

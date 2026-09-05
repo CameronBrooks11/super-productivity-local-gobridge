@@ -161,8 +161,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tasks add` takes the title as a single argument and parses the rest as
   flags, where it previously joined every trailing argument into the title.
   `tasks add buy milk` created a task called "buy milk" in 0.1.0 and fails in
-  0.1.1 with `Error: Unknown flag: milk`, so an unquoted multi-word title has to be
-  quoted. Breaking for scripts that relied on the old joining
+  0.1.1 with `Error: Unknown flag: milk`, so an unquoted multi-word title has
+  to be quoted. Breaking for scripts that relied on the old joining
 
 ### Fixed
 

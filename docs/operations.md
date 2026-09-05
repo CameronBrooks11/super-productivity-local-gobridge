@@ -63,7 +63,24 @@ Same as create except: `parentId` is not allowed on update.
 | `source` | `active` \| `archived` \| `all` | Task pool (default: `active`) |
 
 ::: tip
-`source=all` expands the pool to include archived tasks but does **not** automatically show completed tasks. Most archived tasks are done, so combine with `includeDone=true` to see them. The `taskCount` in `get_status` reflects the active pool including done tasks (not all tasks across all sources).
+`source=all` expands the pool to include archived tasks but does **not** automatically show completed tasks.
+
+**Both `source=archived` and `source=all` require `includeDone=true`.** Super Productivity applies the done filter to the archived pool regardless of a task's own `isDone` value, so a task archived while still open is invisible to `source=archived` on its own:
+
+```console
+$ sp-local-bridge tasks archive <id>
+{ "archived": true, "id": "<id>" }
+
+$ sp-local-bridge tasks list --source archived
+[]
+
+$ sp-local-bridge tasks list --source archived --include-done
+# the task is here
+```
+
+An empty result from `--source archived` therefore does not mean the archive failed. This is Super Productivity's own filtering — the bridge passes `source` and `includeDone` through to the REST API unchanged.
+
+The `taskCount` in `get_status` reflects the active pool including done tasks (not all tasks across all sources).
 :::
 
 ## Error Codes

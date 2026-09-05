@@ -100,3 +100,68 @@ The `taskCount` in `get_status` reflects the active pool including done tasks (n
 ## Intentionally Excluded
 
 - **`task.delete`** — Destructive operation excluded by design. Use archive/restore instead.
+
+## Store integrity (`doctor --deep`)
+
+`doctor` on its own checks that the bridge can reach Super Productivity. It does
+not check that the data coming back is coherent — a corrupt store answers every
+liveness check perfectly.
+
+`doctor --deep` additionally cross-references task entities against the indexes
+that point at them (`project.taskIds`, `project.backlogTaskIds`, `tag.taskIds`,
+`task.subTaskIds`) and reports two conditions:
+
+| Condition | Meaning |
+|---|---|
+| **dangling** | A project or tag references a task that does not exist in any pool. |
+| **orphaned** | An active task exists that nothing references; it may be invisible in the UI. |
+
+Archived tasks are exempt from the orphan check: archiving removes a task from
+`project.taskIds`, so an unreferenced archived task is normal. They are still
+loaded, because a project may legitimately reference a task that now lives in
+the archive.
+
+```console
+$ sp-local-bridge doctor --deep
+...
+Store integrity... OK
+  active tasks        : 277
+  archived tasks      : 17
+  referenced by index : 277
+```
+
+`--json` prints only the report (and implies `--deep`), for scripting:
+
+```console
+$ sp-local-bridge doctor --json
+{
+  "activeTasks": 277,
+  "archivedTasks": 17,
+  "clean": true,
+  "dangling": [],
+  "orphaned": [],
+  "referenced": 277
+}
+```
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | All checks passed. |
+| 1 | A check failed (for example, SP is unreachable). |
+| 3 | Every request succeeded, but the store is inconsistent. |
+
+3 is distinct on purpose: it separates "cannot reach SP" from "SP answered, and
+its data is broken", which need different responses.
+
+### If it warns
+
+Restart Super Productivity and re-run — an inconsistency confined to the
+renderer's in-memory store clears on reload, since the persisted database is
+usually intact.
+
+**Do not import a backup while this warning is showing.** Backups are written
+from the same in-memory state, so a backup taken during an inconsistency
+captures it, and restoring one can turn a recoverable glitch into real data
+loss.

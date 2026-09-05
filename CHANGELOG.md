@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `doctor --deep` cross-references task entities against the project and tag
+  indexes that point at them, reporting dangling references and orphaned active
+  tasks. `--json` prints only that report. Exit code 3 distinguishes "SP
+  answered but its data is inconsistent" from a failed check (#28)
+
+### Added
+
 - `claude-code` host target for `configure` and `print-config`, writing user
   scope in `~/.claude.json`. Claude Code is a separate host from Claude Desktop
   and was previously not configurable at all (#25)

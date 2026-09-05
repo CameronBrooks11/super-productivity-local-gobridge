@@ -20,9 +20,49 @@ import (
 
 // Run executes the doctor diagnostics. Returns exit code.
 func Run(args []string) int {
+	deep := false
+	asJSON := false
+	for _, arg := range args {
+		switch arg {
+		case "--deep":
+			deep = true
+		case "--json":
+			asJSON = true
+		case "--help", "-h":
+			usage()
+			return 0
+		default:
+			if strings.HasPrefix(arg, "-") {
+				fmt.Fprintf(os.Stderr, "Error: unknown option '%s'\n", arg)
+				usage()
+				return 2
+			}
+		}
+	}
+	// --json prints only the integrity report, so it implies --deep.
+	if asJSON {
+		deep = true
+	}
+
 	baseURL := bridge.DefaultBaseURL
 	if env := os.Getenv("SP_BASE_URL"); env != "" {
 		baseURL = env
+	}
+
+	if asJSON {
+		client := bridge.NewClient(baseURL)
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		report, err := CheckIntegrity(ctx, client)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+			return 1
+		}
+		fmt.Println(integrityJSON(report))
+		if !report.Clean() {
+			return 1
+		}
+		return 0
 	}
 
 	fmt.Printf("sp-local-bridge doctor (%s)\n", version.String())
@@ -111,6 +151,21 @@ func Run(args []string) int {
 		}
 	}
 
+	// Store integrity (opt-in: pulls the whole store)
+	inconsistent := false
+	if deep && health.OK {
+		fmt.Print("Store integrity... ")
+		deepCtx, deepCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer deepCancel()
+		report, err := CheckIntegrity(deepCtx, client)
+		if err != nil {
+			fmt.Printf("FAILED: %s\n", err)
+			failures++
+		} else if !printIntegrity(report) {
+			inconsistent = true
+		}
+	}
+
 	// MCP self-check
 	fmt.Print("MCP self-check... ")
 	if mcpErr := checkMCPSelf(exe); mcpErr != "" {
@@ -133,8 +188,26 @@ func Run(args []string) int {
 		fmt.Printf("%d check(s) failed.\n", failures)
 		return 1
 	}
+	if inconsistent {
+		// Not a failed check: every request succeeded. The store itself is the
+		// problem, and that is worth a distinct exit code so scripts can tell
+		// "cannot reach SP" from "SP answered, and its data is broken".
+		fmt.Println("Checks passed, but the store is inconsistent (see above).")
+		return 3
+	}
 	fmt.Println("All checks passed.")
 	return 0
+}
+
+func usage() {
+	fmt.Println("Usage: sp-local-bridge doctor [OPTIONS]")
+	fmt.Println()
+	fmt.Println("Options:")
+	fmt.Println("  --deep    Also cross-check task entities against project/tag indexes.")
+	fmt.Println("            Pulls the whole store, so it is slower than the default run.")
+	fmt.Println("  --json    Print only the integrity report as JSON (implies --deep).")
+	fmt.Println()
+	fmt.Println("Exit codes: 0 ok, 1 a check failed, 3 store inconsistent.")
 }
 
 // checkHostConfigs returns list of host names whose config files contain our entry.

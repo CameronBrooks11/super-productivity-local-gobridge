@@ -34,7 +34,7 @@ export default defineConfig({
       { text: "Operations", link: "/operations" },
       { text: "Hosts", link: "/hosts/" },
       {
-        text: "v0.1.1",
+        text: "Releases",
         items: [
           { text: "Changelog", link: "https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases" },
           { text: "Python Bridge (archived)", link: "https://cameronbrooks11.github.io/super-productivity-local-bridge/" },

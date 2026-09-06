@@ -378,9 +378,16 @@ func RunPrintConfig(args []string) int {
 	// configured one host, said nothing about the other, and exited 0 - and
 	// after `--` became the end-of-options marker, it also meant
 	// `configure <host> -- --dry-run` wrote for real, because the flag landed
-	// in remaining and nothing looked at it. The message names the first
-	// unexpected argument, as doctor does; --status has its own arity check,
-	// which runs earlier and worded itself differently.
+	// in remaining and nothing looked at it. The message borrows doctor's
+	// phrasing and its choice of the first unexpected argument, though not its
+	// format; --status has its own arity check, which runs earlier because it
+	// takes no host at all and can say so more precisely.
+	//
+	// Deliberately after --help, unlike the unknown-flag check above. That one
+	// runs first because a mistyped flag means the user asked for an action and
+	// would otherwise be handed usage text instead; `configure a b --help`
+	// contains an actual request for usage, so honouring it is not a surprise.
+	// TestExtraPositional_HelpStillWins pins this.
 	if len(remaining) > 1 {
 		fmt.Fprintf(os.Stderr, "Error: expected one host, got %d (unexpected argument '%s')\n", len(remaining), remaining[1])
 		return 2
@@ -537,9 +544,16 @@ func RunConfigure(args []string) int {
 	// configured one host, said nothing about the other, and exited 0 - and
 	// after `--` became the end-of-options marker, it also meant
 	// `configure <host> -- --dry-run` wrote for real, because the flag landed
-	// in remaining and nothing looked at it. The message names the first
-	// unexpected argument, as doctor does; --status has its own arity check,
-	// which runs earlier and worded itself differently.
+	// in remaining and nothing looked at it. The message borrows doctor's
+	// phrasing and its choice of the first unexpected argument, though not its
+	// format; --status has its own arity check, which runs earlier because it
+	// takes no host at all and can say so more precisely.
+	//
+	// Deliberately after --help, unlike the unknown-flag check above. That one
+	// runs first because a mistyped flag means the user asked for an action and
+	// would otherwise be handed usage text instead; `configure a b --help`
+	// contains an actual request for usage, so honouring it is not a surprise.
+	// TestExtraPositional_HelpStillWins pins this.
 	if len(remaining) > 1 {
 		fmt.Fprintf(os.Stderr, "Error: expected one host, got %d (unexpected argument '%s')\n", len(remaining), remaining[1])
 		return 2

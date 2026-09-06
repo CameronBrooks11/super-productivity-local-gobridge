@@ -281,6 +281,13 @@ saw into two groups:
   mid-check, but it could also be corruption appearing or clearing, so these are
   recorded rather than discarded.
 
+Reconciliation is per **(category, id)**, not per id, because the categories are
+not mutually exclusive — one task can be orphaned and duplicated at the same
+time. So the two groups are **not disjoint id sets**: the same id can appear in a
+confirmed list *and* in `unresolved`, meaning the passes agreed about one of its
+symptoms and disagreed about another. Do not sum the lists to get a task count;
+take the union.
+
 `unconfirmed` is true when `unresolved` is non-empty, or when the confirmation
 pass could not run at all. `unconfirmedReason` carries the second pass's error
 in that case, so "SP became unreachable" is not misreported as concurrent

@@ -1214,8 +1214,15 @@ func TestConfirmed_CategoriesAreReconciledIndependently(t *testing.T) {
 
 // Unresolved is a list of ids, so an id the passes disagree about in two
 // categories at once is still reported once.
+//
+// The pass is counted on the *active* request because CheckIntegrity fetches
+// active before archived. Counting it on the archived request made an earlier
+// version of this test vacuous: the active branch read the counter before it had
+// been incremented, "ghost" never entered the active pool, pass one came back
+// clean, and CheckIntegrityConfirmed short-circuited before any of the
+// assertions below could mean anything.
 func TestConfirmed_UnresolvedIDsAreNotDuplicatedAcrossCategories(t *testing.T) {
-	round := 0
+	pass := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		enc := func(v []map[string]any) {
@@ -1223,17 +1230,17 @@ func TestConfirmed_UnresolvedIDsAreNotDuplicatedAcrossCategories(t *testing.T) {
 		}
 		switch {
 		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
-			round++
-			if round == 1 {
-				// First pass only: "ghost" is duplicated *and*, being
-				// unreferenced and active, orphaned.
+			if pass == 1 {
 				enc([]map[string]any{task("ghost")})
 				return
 			}
 			enc([]map[string]any{})
 		case r.URL.Path == "/tasks":
-			round2 := round
-			if round2 == 1 {
+			pass++
+			if pass == 1 {
+				// First pass only. "ghost" is active and unreferenced, so it is
+				// orphaned, and it is in the archive too, so it is duplicated:
+				// one id, two categories, both seen exactly once.
 				enc([]map[string]any{task("t1"), task("ghost")})
 				return
 			}
@@ -1250,14 +1257,18 @@ func TestConfirmed_UnresolvedIDsAreNotDuplicatedAcrossCategories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
+	// Guard the guard: if the fixture stops producing a disagreement, the dedup
+	// assertion below would pass on an empty list and prove nothing.
+	if len(r.Unresolved) == 0 {
+		t.Fatal("fixture produced no disagreement, so this test would verify nothing")
+	}
 	seen := map[string]int{}
 	for _, id := range r.Unresolved {
 		seen[id]++
 	}
-	for id, n := range seen {
-		if n > 1 {
-			t.Errorf("id %q reported %d times in Unresolved: %v", id, n, r.Unresolved)
-		}
+	if seen["ghost"] != 1 {
+		t.Errorf("ghost was seen once in two categories, so it must be listed once; got %v", r.Unresolved)
 	}
 }
 
@@ -1278,10 +1289,14 @@ func captureIntegrity(t *testing.T, report IntegrityReport) (string, bool) {
 	if err != nil {
 		t.Fatalf("pipe: %v", err)
 	}
+	defer r.Close()
+	// Restored with defer: a panic in printIntegrity would otherwise leave every
+	// later test in this package writing into a closed pipe.
+	defer func() { os.Stdout = stdout }()
 	os.Stdout = w
+
 	clean := printIntegrity(report)
 	w.Close()
-	os.Stdout = stdout
 
 	out, _ := io.ReadAll(r)
 	return string(out), clean
@@ -1334,6 +1349,14 @@ func TestPrintIntegrity_UnconfirmedIsNeitherWarnNorOK(t *testing.T) {
 	}
 	if strings.Contains(out, "WARN") {
 		t.Errorf("a once-seen observation is not a verdict, got:\n%s", out)
+	}
+	// The name says "neither", so check both halves: the status line must not
+	// read OK either, or the caller is told a store it could not reconcile is
+	// fine. Matched on the line itself, since "OK" appears inside UNCONFIRMED.
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) == "OK" {
+			t.Errorf("an unconfirmed report must not read OK, got:\n%s", out)
+		}
 	}
 	if !strings.Contains(out, "MAYBE") {
 		t.Errorf("expected the once-seen id, got:\n%s", out)

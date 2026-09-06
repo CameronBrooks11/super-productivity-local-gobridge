@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   everything. Reconciliation is now per `(category, id)`; the id itself is still
   reported once (#32)
 
+  This changes what the report can say: a confirmed list and `unresolved` are no
+  longer disjoint, because an id can have one symptom the passes agreed on and
+  another they did not. `docs/operations.md` says so.
+
 ## [0.3.1] - 2026-09-06
 
 ### Added

@@ -1,8 +1,8 @@
 # Super Productivity Local Go Bridge
 
-Single-binary MCP server and CLI that lets AI agents manage [Super Productivity](https://super-productivity.com/) tasks over the app's own Local REST API — no plugin, no Node runtime, and no delete operation at any layer.
+Single-binary MCP server and CLI that lets AI agents manage [Super Productivity](https://super-productivity.com/) tasks over the app's own Local REST API — no plugin, no Node runtime, and no way for it to delete a task.
 
-It is for a Super Productivity user who already drives an AI coding agent — Claude Code, VS Code Copilot, Codex — and wants it reading and updating their real task list, without installing a Node toolchain or granting an in-app plugin permission to execute Node.
+It is for a Super Productivity user who already drives an MCP-capable AI coding agent and wants it reading and updating their real task list, without installing a Node toolchain or granting an in-app plugin permission to execute Node.
 
 **[Documentation Site](https://cameronbrooks11.github.io/super-productivity-local-gobridge/)**
 
@@ -10,9 +10,9 @@ It is for a Super Productivity user who already drives an AI coding agent — Cl
 
 - **Single binary** — no runtime dependencies, small static binary
 - **MCP server** — JSON-RPC 2.0 over stdio (protocol version 2024-11-05)
-- **16 MCP tools** — read, create, update, complete, track time, archive and restore
-- **No delete** — no destructive operation is exposed at any layer, by design
-- **Store integrity checking** — `doctor --deep` cross-checks the task and archive pools against the project, tag and subtask indexes for dangling, orphaned and duplicated ids
+- **16 MCP tools** — read, create, update, complete and uncomplete, track time, archive and restore
+- **No task deletion** — no operation that deletes task data is exposed at any layer, by design
+- **Store integrity checking** — `doctor --deep` cross-checks the task and archive pools against the project, tag and subtask indexes, and against each other, for dangling references, orphaned active tasks, and ids present in both pools
 - **Host auto-config** — configures Claude Code, Claude Desktop, VS Code Copilot, Codex CLI
 - **Strict validation** — integer fields reject exponents and overflow
 
@@ -134,8 +134,7 @@ for what each claim rests on.
 This is the Go rewrite of
 [super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge)
 (Python v0.2.0), targeting single-binary portability. The Python bridge is
-archived and read-only; work continues here. See
-[Migration from Python](https://cameronbrooks11.github.io/super-productivity-local-gobridge/migration).
+archived and read-only; work continues here.
 
 ## License
 

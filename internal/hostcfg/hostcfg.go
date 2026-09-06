@@ -373,6 +373,18 @@ func RunPrintConfig(args []string) int {
 		return 2
 	}
 
+	// A second positional is rejected rather than ignored. Taking remaining[0]
+	// and discarding the rest meant `configure claude-code claude-desktop`
+	// configured one host, said nothing about the other, and exited 0 - and
+	// after `--` became the end-of-options marker, it also meant
+	// `configure <host> -- --dry-run` wrote for real, because the flag landed
+	// in remaining and nothing looked at it. --status already reports its own
+	// extra argument this way.
+	if len(remaining) > 1 {
+		fmt.Fprintf(os.Stderr, "Error: expected one host, got %d (unexpected argument '%s')\n", len(remaining), remaining[1])
+		return 2
+	}
+
 	hostName := remaining[0]
 	meta, ok := hosts[hostName]
 	if !ok {
@@ -516,6 +528,18 @@ func RunConfigure(args []string) int {
 
 	if len(remaining) == 0 {
 		configureUsage()
+		return 2
+	}
+
+	// A second positional is rejected rather than ignored. Taking remaining[0]
+	// and discarding the rest meant `configure claude-code claude-desktop`
+	// configured one host, said nothing about the other, and exited 0 - and
+	// after `--` became the end-of-options marker, it also meant
+	// `configure <host> -- --dry-run` wrote for real, because the flag landed
+	// in remaining and nothing looked at it. --status already reports its own
+	// extra argument this way.
+	if len(remaining) > 1 {
+		fmt.Fprintf(os.Stderr, "Error: expected one host, got %d (unexpected argument '%s')\n", len(remaining), remaining[1])
 		return 2
 	}
 

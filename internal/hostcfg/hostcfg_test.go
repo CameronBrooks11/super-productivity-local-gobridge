@@ -1289,3 +1289,99 @@ func TestRunConfigure_ValidFlagsStillAccepted(t *testing.T) {
 		})
 	}
 }
+
+// TestExtraPositional_Rejected is the guard for #60. As with the unknown-flag
+// guard, the exit code is not the point: the old behaviour also had a
+// well-defined exit code (0), with a config file written next to it for a
+// command the user had reason to think did something else.
+func TestExtraPositional_Rejected(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		// wrote names the host whose config file must NOT appear, or "" when
+		// the shape could not have written one anyway.
+		wrote string
+		// unexpected is the argument the message must name. Naming the host
+		// instead would still say "expected one host" and still exit 2, so
+		// without this the message could point at the wrong argument and no
+		// test would notice.
+		unexpected string
+	}{
+		{"two hosts", []string{"claude-desktop", "claude-code"}, HostClaudeDesktop, "claude-code"},
+		{"flag after the marker", []string{"claude-desktop", "--", "--dry-run"}, HostClaudeDesktop, "--dry-run"},
+		{"junk after the host", []string{"claude-desktop", "nonsense"}, HostClaudeDesktop, "nonsense"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := withTempHome(t)
+			var code int
+			_, stderr := captureStdio(t, func() { code = RunConfigure(tc.args) })
+			if code != 2 {
+				t.Errorf("expected exit 2, got %d", code)
+			}
+			if !strings.Contains(stderr, "expected one host") {
+				t.Errorf("stderr should name the problem, got %q", stderr)
+			}
+			if !strings.Contains(stderr, tc.unexpected) {
+				t.Errorf("expected %q named as the unexpected argument, got %q", tc.unexpected, stderr)
+			}
+			if tc.wrote == "" {
+				return
+			}
+			if _, err := os.Stat(testConfigPath(home, tc.wrote)); err == nil {
+				t.Fatalf("a rejected command configured %s", tc.wrote)
+			}
+		})
+	}
+}
+
+// TestExtraPositional_RejectedByPrintConfig is the print-config half. Its
+// hazard is different: it cannot write a file, but it can print an entry for a
+// host the caller did not name last, which is then pasted somewhere by hand.
+func TestExtraPositional_RejectedByPrintConfig(t *testing.T) {
+	withTempHome(t)
+	var code int
+	stdout, stderr := captureStdio(t, func() {
+		code = RunPrintConfig([]string{"claude-code", "codex"})
+	})
+	if code != 2 {
+		t.Errorf("expected exit 2, got %d", code)
+	}
+	if !strings.Contains(stderr, "expected one host") {
+		t.Errorf("stderr should name the problem, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "codex") {
+		t.Errorf("expected the extra argument named, got %q", stderr)
+	}
+	if strings.Contains(stdout, hosts[HostClaudeCode].entryName) {
+		t.Errorf("a rejected command printed a config entry: %q", stdout)
+	}
+}
+
+// TestOneHostStillAccepted is the other half: rejecting a second positional is
+// only correct if exactly one still works, including when it arrives after the
+// end-of-options marker or after a flag.
+func TestOneHostStillAccepted(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func([]string) int
+		args []string
+	}{
+		{"configure", RunConfigure, []string{"claude-desktop"}},
+		{"configure after a flag", RunConfigure, []string{"--dry-run", "claude-desktop"}},
+		{"configure after --", RunConfigure, []string{"--", "claude-desktop"}},
+		{"print-config", RunPrintConfig, []string{"claude-code"}},
+		{"print-config after a flag", RunPrintConfig, []string{"--bare", "claude-code"}},
+		{"print-config after --", RunPrintConfig, []string{"--", "claude-code"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempHome(t)
+			var code int
+			_, stderr := captureStdio(t, func() { code = tc.run(tc.args) })
+			if code != 0 {
+				t.Fatalf("expected exit 0, got %d (stderr: %q)", code, stderr)
+			}
+		})
+	}
+}

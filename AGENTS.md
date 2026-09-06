@@ -190,9 +190,10 @@ maintainer reviews it and decides what becomes an issue.
 **A security finding never becomes a public issue, whoever asked.** It goes to
 the private channel in `SECURITY.md` — that document's first instruction is "Do
 not open a public GitHub issue". This overrides everything below: a
-vulnerability is a behavioural finding reproducible against a released build,
-so it satisfies the bullets and must still not be filed. Filing it publicly is
-the disclosure.
+vulnerability satisfies the bullets below — usually the first, though a
+workflow-permissions hole is a claim about the repository and a dependency CVE
+belongs to the third — and must still not be filed. Filing it publicly is the
+disclosure.
 
 Otherwise, **file directly only when the maintainer has asked**, and only with
 the evidence that fits the claim:

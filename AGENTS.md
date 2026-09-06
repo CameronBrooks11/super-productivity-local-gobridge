@@ -187,16 +187,29 @@ write a concise report to `working/feedback/<descriptive-slug>.md` with:
 `working/feedback/` is the default and the starting point, not a dead end. The
 maintainer reviews it and decides what becomes an issue.
 
-**File directly only when the maintainer has asked**, and only with the evidence
-that fits the claim:
+**A security finding never becomes a public issue, whoever asked.** It goes to
+the private channel in `SECURITY.md` — that document's first instruction is "Do
+not open a public GitHub issue". This overrides everything below: a
+vulnerability is a behavioural finding reproducible against a released build,
+so it satisfies the bullets and must still not be filed. Filing it publicly is
+the disclosure.
 
-- **A behavioural finding** — something the tool does — is reproduced against a
+Otherwise, **file directly only when the maintainer has asked**, and only with
+the evidence that fits the claim:
+
+- **A behavioural finding** — something this tool does — is reproduced against a
   released build, not a branch. A branch repro says nothing about what anyone is
   running.
 - **A claim about the repository** — a coverage gap, a CI matrix that misses a
   target, a version string that drifts — carries the command that reads it.
-  #46, #47 and #48 are all of this kind and have no released build to run
-  against; requiring one would just block them.
+  #47 and #48 have no released build to run against; #46's drift is visible in
+  a tag. Requiring a runtime repro would just block them.
+- **A finding about someone else's software** — a dependency, or Super
+  Productivity itself — is reproduced against *its* released build, and checked
+  against its default branch too when the question is whether a fix has already
+  landed. Both halves matter: upstream #9946 could say "live in the current
+  release, not already fixed and awaiting a version bump" only because it was
+  verified against `v18.21.2` **and** `master`.
 
 Write the `working/feedback/` note first either way. That step is not ceremony:
 it is where the claim gets stated precisely enough to test, and re-running it on

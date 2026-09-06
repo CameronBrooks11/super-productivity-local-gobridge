@@ -3,6 +3,7 @@ package hostcfg
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -1285,6 +1286,270 @@ func TestRunConfigure_ValidFlagsStillAccepted(t *testing.T) {
 			captureStdio(t, func() { code = RunConfigure(tc.args) })
 			if code != tc.want {
 				t.Fatalf("expected exit %d, got %d", tc.want, code)
+			}
+		})
+	}
+}
+
+// TestExtraPositional_Rejected is the guard for #60. As with the unknown-flag
+// guard, the exit code is not the point: the old behaviour also had a
+// well-defined exit code (0), with a config file written next to it for a
+// command the user had reason to think did something else.
+func TestExtraPositional_Rejected(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		// wrote names the host whose config file must NOT appear. Every case
+		// names the same host because the point is that the *first* positional
+		// is not acted on either; untouched names the second host, where there
+		// is one, so both ends of the rejection are asserted.
+		wrote     string
+		untouched string
+		// count is the number of positionals the message must report. Without
+		// a three-positional case, len(remaining) is indistinguishable from a
+		// hardcoded 2.
+		count int
+		// unexpected is the argument the message must name. Naming the host
+		// instead would still say "expected one host" and still exit 2, so
+		// without this the message could point at the wrong argument and no
+		// test would notice.
+		unexpected string
+	}{
+		{"two hosts", []string{"claude-desktop", "claude-code"}, HostClaudeDesktop, HostClaudeCode, 2, "claude-code"},
+		// Three, because with only N=2 fixtures `len(remaining)` and the index
+		// `remaining[1]` are indistinguishable from the constant 2 and from
+		// "the last one" - two mutations that survived the first sweep.
+		{"three hosts", []string{"claude-desktop", "claude-code", "codex"}, HostClaudeDesktop, HostCodex, 3, "claude-code"},
+		{"flag after the marker", []string{"claude-desktop", "--", "--dry-run"}, HostClaudeDesktop, "", 2, "--dry-run"},
+		{"junk after the host", []string{"claude-desktop", "nonsense"}, HostClaudeDesktop, "", 2, "nonsense"},
+		// An unset shell variable, which expands to an empty argument rather
+		// than to nothing.
+		{"empty argument after the host", []string{"claude-desktop", ""}, HostClaudeDesktop, "", 2, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := withTempHome(t)
+			var code int
+			_, stderr := captureStdio(t, func() { code = RunConfigure(tc.args) })
+			if code != 2 {
+				t.Errorf("expected exit 2, got %d", code)
+			}
+			if !strings.Contains(stderr, "expected one host") {
+				t.Errorf("stderr should name the problem, got %q", stderr)
+			}
+			if !strings.Contains(stderr, fmt.Sprintf("got %d", tc.count)) {
+				t.Errorf("expected the message to report %d positionals, got %q", tc.count, stderr)
+			}
+			// An empty unexpected argument is still worth the case: it proves
+			// the command rejects rather than silently proceeding. There is no
+			// substring to look for, so only the count assertion above applies.
+			if tc.unexpected != "" && !strings.Contains(stderr, tc.unexpected) {
+				t.Errorf("expected %q named as the unexpected argument, got %q", tc.unexpected, stderr)
+			}
+			if _, err := os.Stat(testConfigPath(home, tc.wrote)); err == nil {
+				t.Errorf("a rejected command configured %s", tc.wrote)
+			}
+			if tc.untouched == "" {
+				return
+			}
+			if _, err := os.Stat(testConfigPath(home, tc.untouched)); err == nil {
+				t.Errorf("a rejected command configured %s", tc.untouched)
+			}
+		})
+	}
+}
+
+// TestExtraPositional_RejectedByPrintConfig is the print-config half. Its
+// hazard is different: it cannot write a file, but it can print an entry for a
+// host the caller did not name last, which is then pasted somewhere by hand.
+func TestExtraPositional_RejectedByPrintConfig(t *testing.T) {
+	cases := []struct {
+		name       string
+		args       []string
+		count      int
+		unexpected string
+	}{
+		{"two hosts", []string{"claude-code", "codex"}, 2, "codex"},
+		// Three, for the same reason as the configure table: with only N=2 the
+		// count is indistinguishable from a hardcoded 2, and remaining[1] from
+		// "the last one". Both mutations survived until this case existed.
+		{"three hosts", []string{"claude-code", "codex", "claude-desktop"}, 3, "codex"},
+		// The rest mirror the configure table. Without them five further
+		// mutations survived here that the configure table already caught:
+		// counting args rather than remaining, indexing args rather than
+		// remaining, and three ways of quietly skipping an empty or
+		// flag-shaped positional.
+		{"flag after the marker", []string{"claude-code", "--", "--bare"}, 2, "--bare"},
+		{"junk after the host", []string{"claude-code", "nonsense"}, 2, "nonsense"},
+		{"empty argument after the host", []string{"claude-code", ""}, 2, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempHome(t)
+			var code int
+			stdout, stderr := captureStdio(t, func() { code = RunPrintConfig(tc.args) })
+			if code != 2 {
+				t.Errorf("expected exit 2, got %d", code)
+			}
+			if !strings.Contains(stderr, "expected one host") {
+				t.Errorf("stderr should name the problem, got %q", stderr)
+			}
+			if !strings.Contains(stderr, fmt.Sprintf("got %d", tc.count)) {
+				t.Errorf("expected the message to report %d positionals, got %q", tc.count, stderr)
+			}
+			// As in the configure table, an empty unexpected argument has no
+			// substring to look for; the count assertion above is what covers
+			// it, and it is the only case that catches a guard which skips
+			// empty positionals.
+			if tc.unexpected != "" && !strings.Contains(stderr, tc.unexpected) {
+				t.Errorf("expected %q named as the unexpected argument, got %q", tc.unexpected, stderr)
+			}
+			if strings.Contains(stdout, hosts[HostClaudeCode].entryName) {
+				t.Errorf("a rejected command printed a config entry: %q", stdout)
+			}
+		})
+	}
+}
+
+// TestOneHostStillAccepted is the other half: rejecting a second positional is
+// only correct if exactly one still works, including when it arrives after the
+// end-of-options marker or after a flag.
+func TestOneHostStillAccepted(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func([]string) int
+		args []string
+	}{
+		{"configure", RunConfigure, []string{"claude-desktop"}},
+		{"configure after a flag", RunConfigure, []string{"--dry-run", "claude-desktop"}},
+		{"configure after --", RunConfigure, []string{"--", "claude-desktop"}},
+		{"print-config", RunPrintConfig, []string{"claude-code"}},
+		{"print-config after a flag", RunPrintConfig, []string{"--bare", "claude-code"}},
+		{"print-config after --", RunPrintConfig, []string{"--", "claude-code"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempHome(t)
+			var code int
+			_, stderr := captureStdio(t, func() { code = tc.run(tc.args) })
+			if code != 0 {
+				t.Fatalf("expected exit 0, got %d (stderr: %q)", code, stderr)
+			}
+		})
+	}
+}
+
+// TestExtraPositional_HelpStillWins pins where the arity guard sits. Moving it
+// ahead of --help, or behind the unknown-host lookup, are both real behaviour
+// changes that left the whole suite green before this existed.
+func TestExtraPositional_HelpStillWins(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func([]string) int
+		args []string
+		want int
+	}{
+		// --help is an explicit request for usage, so it is honoured even
+		// alongside a second positional.
+		{"configure, help wins", RunConfigure, []string{"claude-desktop", "claude-code", "--help"}, 0},
+		{"print-config, help wins", RunPrintConfig, []string{"claude-code", "codex", "--help"}, 0},
+		// A mistyped flag does not win, because the user asked for an action.
+		// This is the unknown-flag check running ahead of both.
+		{"configure, bad flag beats help", RunConfigure, []string{"claude-desktop", "claude-code", "--bogus"}, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempHome(t)
+			var code int
+			_, stderr := captureStdio(t, func() { code = tc.run(tc.args) })
+			if code != tc.want {
+				t.Fatalf("expected exit %d, got %d (stderr: %q)", tc.want, code, stderr)
+			}
+		})
+	}
+}
+
+// TestExtraPositional_BeatsUnknownHost pins the other end: the arity error is
+// reported before the host is looked up, so a user who typed two wrong things
+// is told about the argument count rather than being sent to fix a host name
+// they will then have to remove anyway.
+//
+// Both commands, because covering only configure let print-config's guard be
+// moved below its host lookup with the whole suite green.
+func TestExtraPositional_BeatsUnknownHost(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func([]string) int
+	}{
+		{"configure", RunConfigure},
+		{"print-config", RunPrintConfig},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempHome(t)
+			var code int
+			_, stderr := captureStdio(t, func() { code = tc.run([]string{"bogus-host", "extra"}) })
+			if code != 2 {
+				t.Fatalf("expected exit 2, got %d", code)
+			}
+			if !strings.Contains(stderr, "expected one host") {
+				t.Errorf("expected the arity error first, got %q", stderr)
+			}
+			if strings.Contains(stderr, "unknown host") {
+				t.Errorf("host lookup should not have run: %q", stderr)
+			}
+		})
+	}
+}
+
+// TestExtraPositional_StatusKeepsItsOwnMessage pins the third edge. --status
+// takes no host at all, so it can say so more precisely than a generic arity
+// error; moving the arity guard above the --status block swaps the message and
+// left the whole suite green, because the existing --status test passes a
+// single host and asserts only the exit code.
+func TestExtraPositional_StatusKeepsItsOwnMessage(t *testing.T) {
+	withTempHome(t)
+	var code int
+	_, stderr := captureStdio(t, func() {
+		code = RunConfigure([]string{"--status", "claude-code", "claude-desktop"})
+	})
+	if code != 2 {
+		t.Fatalf("expected exit 2, got %d", code)
+	}
+	if !strings.Contains(stderr, "takes no host argument") {
+		t.Errorf("expected --status's own message, got %q", stderr)
+	}
+	if strings.Contains(stderr, "expected one host") {
+		t.Errorf("the generic arity error displaced --status's: %q", stderr)
+	}
+}
+
+// TestExtraPositional_MessageFormat pins the parts of the message the other
+// tests only sample. Dropping the "Error: " prefix or the quotes around the
+// argument each left the suite green, because everything else searches for a
+// bare substring.
+func TestExtraPositional_MessageFormat(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func([]string) int
+		args []string
+		want string
+	}{
+		{"configure", RunConfigure, []string{"claude-desktop", "claude-code"},
+			"Error: expected one host, got 2 (unexpected argument 'claude-code')"},
+		{"print-config", RunPrintConfig, []string{"claude-code", "codex"},
+			"Error: expected one host, got 2 (unexpected argument 'codex')"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempHome(t)
+			var code int
+			_, stderr := captureStdio(t, func() { code = tc.run(tc.args) })
+			if code != 2 {
+				t.Errorf("expected exit 2, got %d", code)
+			}
+			if strings.TrimSpace(stderr) != tc.want {
+				t.Errorf("message mismatch\n got: %q\nwant: %q", strings.TrimSpace(stderr), tc.want)
 			}
 		})
 	}

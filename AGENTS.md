@@ -106,7 +106,9 @@ rule exists:
 - `super-productivity/super-productivity#9946` — a missing id yields a phantom
   task object with no `id`, so every `if (!task)` guard downstream is inert and
   `deleteTaskHelper` matches every top-level task. Shut at the REST entry point
-  from SP `v18.15.0`; still reachable through the Plugin API on `master`.
+  from SP `v18.15.0`; still reachable through the Plugin API on `master`. That
+  check covers two known lookup helpers, not every route, so the rule above
+  stands whatever version you are pointed at.
 - `super-productivity/super-productivity#9945` — the backup writer serialises
   the resulting inconsistent store 30 seconds later and it becomes the newest
   file in the rotation.
@@ -115,9 +117,14 @@ rule exists:
 
 ## Review gate
 
-Every PR passes an independent review before merge, capped at three rounds. Run
-it after CI is green on the PR head SHA, and treat a finding as open until it is
-either fixed or refuted with evidence.
+Every PR with a human author passes an independent review before merge, capped
+at three rounds. Run it after CI is green on the PR head SHA, and treat a
+finding as open until it is either fixed or refuted with evidence. Dependency
+bumps are exempt — CI is the gate there.
+
+The review lives in commit messages and PR bodies, not in GitHub's review UI, so
+`gh pr view --json reviews` returns nothing for PRs that were thoroughly
+reviewed. Do not read that as evidence either way.
 
 It is worth the cost because of what it actually finds. Across this repo's
 history the gate has run on PRs containing **no code changes at all** and still
@@ -135,8 +142,9 @@ a guess presented as a measurement is not.
 
 Break the code deliberately and confirm the test catches it. This is cheap —
 usually one `sed`, run the suite, restore — and it is the only thing that
-distinguishes a real guard from a test that merely runs. It has caught, in this
-repo:
+distinguishes a real guard from a test that merely runs. One of the four below
+was found by the mutation sweep itself; the other three were spotted by reading
+and would have stayed arguable without it. Both are worth the minute:
 
 - an assertion loop that could never fail, because the values it searched for
   were printed by an earlier part of the same output regardless
@@ -148,10 +156,11 @@ repo:
   real one it did not mention
 
 Measure every case rather than generalising from one. "Deleting a category from
-that list now fails two tests" was written after checking a single category; it
-was true for two of the three and false for the third — and the third was
-precisely the one with no coverage, which is why the gap survived the commit
-that claimed to close it.
+that list now fails two tests" was written after checking a single category. The
+full sweep was `dangling 13 | orphaned 0 | duplicated 2` — the quoted count was
+right for exactly one of the three, and the category that failed nothing was
+precisely the one with no coverage. The gap survived the commit that claimed to
+close it. Print the matrix; it is three numbers and it cannot be misread.
 
 ## Do NOT
 
@@ -178,13 +187,28 @@ write a concise report to `working/feedback/<descriptive-slug>.md` with:
 `working/feedback/` is the default and the starting point, not a dead end. The
 maintainer reviews it and decides what becomes an issue.
 
-**File directly only when both hold:** the maintainer has asked for it, and the
-finding has been reproduced against a released build rather than a branch. Write
-the `working/feedback/` note first even then — that step is not ceremony. Going
-from note to issue is where #53 grew from "the flag is ignored" to "a
-`--dry-runn` typo writes the config for real", because re-running it against the
-release is what surfaced the write. Annotate the note with the issue number
-afterwards, so a later session does not file it twice.
+**File directly only when the maintainer has asked**, and only with the evidence
+that fits the claim:
+
+- **A behavioural finding** — something the tool does — is reproduced against a
+  released build, not a branch. A branch repro says nothing about what anyone is
+  running.
+- **A claim about the repository** — a coverage gap, a CI matrix that misses a
+  target, a version string that drifts — carries the command that reads it.
+  #46, #47 and #48 are all of this kind and have no released build to run
+  against; requiring one would just block them.
+
+Write the `working/feedback/` note first either way. That step is not ceremony:
+it is where the claim gets stated precisely enough to test, and re-running it on
+the way to the issue is what turns a reasoned consequence into a measured one.
+#53's note had already worked out that a `--dry-runn` typo would write the
+config for real; re-running it against v0.3.1 is what let the issue *show* the
+file being written instead of arguing that it would be.
+
+Before filing, search the tracker — `gh issue list --state all --search '<terms>'`.
+Annotating the note with the issue number afterwards is worth doing, but it
+cannot be the duplicate check: `working/` is gitignored, so a fresh clone or
+another machine has none of those notes.
 
 Never open an issue on a repository that is not ours without explicit
 per-issue approval. Before filing anywhere external, read that project's

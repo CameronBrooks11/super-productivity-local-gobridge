@@ -2,7 +2,7 @@
 
 Single-binary MCP server and CLI that lets AI agents manage [Super Productivity](https://super-productivity.com/) tasks over the app's own Local REST API — no plugin, no Node runtime, and no way for it to delete a task.
 
-It is for a Super Productivity user who already drives an MCP-capable AI coding agent and wants it reading and updating their real task list, without installing a Node toolchain and without running an in-app plugin that holds permission to execute Node.
+It is for a Super Productivity user who already drives an MCP-capable AI coding agent and wants it reading and updating their real task list, without installing a Node toolchain or trusting a third-party plugin inside the app.
 
 **[Documentation Site](https://cameronbrooks11.github.io/super-productivity-local-gobridge/)**
 
@@ -127,14 +127,14 @@ Full docs: **https://cameronbrooks11.github.io/super-productivity-local-gobridge
 
 Pre-release. CI passes on Linux, macOS, and Windows. One live host session has
 been run — VS Code Copilot on Linux x86_64, against v0.1.1 on 2026-05-31 — and
-it has not been repeated since; Claude Desktop, Codex, and macOS/Windows live
-validation are pending. See
+it has not been repeated since; Claude Code, Claude Desktop, Codex, and
+macOS/Windows live validation are pending. See
 [Validation Status](https://cameronbrooks11.github.io/super-productivity-local-gobridge/validation-status)
 for what each claim rests on.
 
 This is the Go rewrite of
 [super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge)
-(Python v0.2.0), targeting single-binary portability. The Python bridge is
+(Python, last released v0.2.2), targeting single-binary portability. The Python bridge is
 archived and read-only; work continues here.
 
 ## License

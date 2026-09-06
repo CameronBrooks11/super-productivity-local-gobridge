@@ -1,10 +1,8 @@
 # Super Productivity Local Go Bridge
 
-> **Status: Pre-release** — CI passes on Linux, macOS, and Windows. Live-validated with VS Code Copilot on Linux; Claude Desktop, Codex, and macOS/Windows live validation pending. See [Validation Status](https://cameronbrooks11.github.io/super-productivity-local-gobridge/validation-status).
+Single-binary MCP server and CLI that lets AI agents manage [Super Productivity](https://super-productivity.com/) tasks over the app's own Local REST API — no plugin, no Node runtime, and no way for it to delete a task.
 
-A local automation bridge for the [Super Productivity](https://super-productivity.com/) desktop app, written in Go. Provides CLI access and an MCP (Model Context Protocol) server for AI-assisted task management.
-
-Go rewrite of [super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge) (Python v0.2.0) targeting single-binary portability. **The Python bridge is archived and read-only** — this repo is where the work continues.
+It is for a Super Productivity user who already drives an MCP-capable AI coding agent and wants it reading and updating their real task list, without installing a Node toolchain or trusting a third-party plugin inside the app.
 
 **[Documentation Site](https://cameronbrooks11.github.io/super-productivity-local-gobridge/)**
 
@@ -12,7 +10,9 @@ Go rewrite of [super-productivity-local-bridge](https://github.com/CameronBrooks
 
 - **Single binary** — no runtime dependencies, small static binary
 - **MCP server** — JSON-RPC 2.0 over stdio (protocol version 2024-11-05)
-- **16 operations** — full parity with Python bridge v0.2.0
+- **16 MCP tools** — read, create, update, complete and uncomplete, track time, archive and restore
+- **No task deletion** — no operation that deletes a task is exposed at any layer, by design
+- **Store integrity checking** — `doctor --deep` cross-checks the task and archive pools against the project, tag and subtask indexes, and against each other, for dangling references, orphaned active tasks, and ids present in both pools
 - **Host auto-config** — configures Claude Code, Claude Desktop, VS Code Copilot, Codex CLI
 - **Strict validation** — integer fields reject exponents and overflow
 
@@ -122,6 +122,20 @@ Full docs: **https://cameronbrooks11.github.io/super-productivity-local-gobridge
 - [Operations Reference](https://cameronbrooks11.github.io/super-productivity-local-gobridge/operations)
 - [Migration from Python](https://cameronbrooks11.github.io/super-productivity-local-gobridge/migration)
 - [Validation Status](https://cameronbrooks11.github.io/super-productivity-local-gobridge/validation-status)
+
+## Status
+
+Pre-release. CI passes on Linux, macOS, and Windows. One live host session has
+been run — VS Code Copilot on Linux x86_64, against v0.1.1 on 2026-05-31 — and
+it has not been repeated since; Claude Code, Claude Desktop, Codex, and
+macOS/Windows live validation are pending. See
+[Validation Status](https://cameronbrooks11.github.io/super-productivity-local-gobridge/validation-status)
+for what each claim rests on.
+
+This is the Go rewrite of
+[super-productivity-local-bridge](https://github.com/CameronBrooks11/super-productivity-local-bridge)
+(Python, last released v0.2.2), targeting single-binary portability. The Python bridge is
+archived and read-only; work continues here.
 
 ## License
 

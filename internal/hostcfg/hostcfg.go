@@ -318,22 +318,54 @@ func buildEntry(host string) map[string]any {
 // RunPrintConfig prints the MCP configuration snippet for a host. Returns exit code.
 func RunPrintConfig(args []string) int {
 	absolute := true
+	wantHelp := false
 	var remaining []string
+	// Unlike doctor, which tracks "seen" separately so an argument that *is*
+	// the empty string is still reported, badFlag here only ever holds a token
+	// with a "-" prefix, so the empty string means "none".
+	var badFlag string
 
+	endOfFlags := false
 	for _, arg := range args {
+		if endOfFlags {
+			remaining = append(remaining, arg)
+			continue
+		}
 		switch arg {
+		case "--":
+			// Standard end-of-options marker. v0.3.1 discarded it and still
+			// resolved the host, so `print-config -- <host>` worked; rejecting
+			// it as an unknown flag would have been a regression.
+			endOfFlags = true
 		case "--absolute":
 			absolute = true
 		case "--bare":
 			absolute = false
 		case "--help", "-h":
-			printConfigUsage()
-			return 0
+			wantHelp = true
 		default:
 			if !strings.HasPrefix(arg, "-") {
 				remaining = append(remaining, arg)
+				continue
+			}
+			// Keep the first bad flag, as doctor does: naming the last sends
+			// the user round the loop once per typo.
+			if badFlag == "" {
+				badFlag = arg
 			}
 		}
+	}
+
+	// Checked before --help so `print-config --bogus --help` reports the typo
+	// rather than exiting 0 on the usage text.
+	if badFlag != "" {
+		fmt.Fprintf(os.Stderr, "Error: unknown flag '%s'\n", badFlag)
+		printConfigUsage()
+		return 2
+	}
+	if wantHelp {
+		printConfigUsage()
+		return 0
 	}
 
 	if len(remaining) == 0 {
@@ -407,10 +439,24 @@ func RunConfigure(args []string) int {
 	dryRun := false
 	remove := false
 	status := false
+	wantHelp := false
 	var remaining []string
+	// Unlike doctor, which tracks "seen" separately so an argument that *is*
+	// the empty string is still reported, badFlag here only ever holds a token
+	// with a "-" prefix, so the empty string means "none".
+	var badFlag string
 
+	endOfFlags := false
 	for _, arg := range args {
+		if endOfFlags {
+			remaining = append(remaining, arg)
+			continue
+		}
 		switch arg {
+		case "--":
+			// See RunPrintConfig: `configure -- <host>` wrote the config on
+			// v0.3.1, so this must keep working.
+			endOfFlags = true
 		case "--dry-run":
 			dryRun = true
 		case "--remove":
@@ -418,13 +464,33 @@ func RunConfigure(args []string) int {
 		case "--status":
 			status = true
 		case "--help", "-h":
-			configureUsage()
-			return 0
+			wantHelp = true
 		default:
 			if !strings.HasPrefix(arg, "-") {
 				remaining = append(remaining, arg)
+				continue
+			}
+			// A dropped flag is not a cosmetic problem here: `--dry-runn`
+			// silently became a real write that exited 0, so the user asked
+			// for a preview and got the change. Keep the first bad flag, as
+			// doctor does, rather than the last.
+			if badFlag == "" {
+				badFlag = arg
 			}
 		}
+	}
+
+	// Checked before --help, and before --status, so a typo is reported rather
+	// than swallowed by usage text or by a status report the caller did not
+	// ask for.
+	if badFlag != "" {
+		fmt.Fprintf(os.Stderr, "Error: unknown flag '%s'\n", badFlag)
+		configureUsage()
+		return 2
+	}
+	if wantHelp {
+		configureUsage()
+		return 0
 	}
 
 	// --status reports on every host, so it takes no host argument and cannot

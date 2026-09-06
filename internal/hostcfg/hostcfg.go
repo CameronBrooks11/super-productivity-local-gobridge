@@ -373,21 +373,16 @@ func RunPrintConfig(args []string) int {
 		return 2
 	}
 
-	// A second positional is rejected rather than ignored. Taking remaining[0]
-	// and discarding the rest meant `configure claude-code claude-desktop`
-	// configured one host, said nothing about the other, and exited 0 - and
-	// after `--` became the end-of-options marker, it also meant
-	// `configure <host> -- --dry-run` wrote for real, because the flag landed
-	// in remaining and nothing looked at it. The message borrows doctor's
-	// phrasing and its choice of the first unexpected argument, though not its
-	// format; --status has its own arity check, which runs earlier because it
-	// takes no host at all and can say so more precisely.
+	// A second positional is rejected rather than ignored, matching
+	// RunConfigure. print-config writes nothing, so the stake is different:
+	// `print-config claude-code codex` printed one host's entry and said
+	// nothing about the other, and that output exists to be pasted into a
+	// config file by hand.
 	//
-	// Deliberately after --help, unlike the unknown-flag check above. That one
-	// runs first because a mistyped flag means the user asked for an action and
-	// would otherwise be handed usage text instead; `configure a b --help`
-	// contains an actual request for usage, so honouring it is not a surprise.
-	// TestExtraPositional_HelpStillWins pins this.
+	// Deliberately after --help and before the host lookup; see RunConfigure
+	// for the reasoning, which applies unchanged. print-config has no --status.
+	// TestExtraPositional_HelpStillWins and TestExtraPositional_BeatsUnknownHost
+	// pin both edges.
 	if len(remaining) > 1 {
 		fmt.Fprintf(os.Stderr, "Error: expected one host, got %d (unexpected argument '%s')\n", len(remaining), remaining[1])
 		return 2
@@ -546,14 +541,15 @@ func RunConfigure(args []string) int {
 	// `configure <host> -- --dry-run` wrote for real, because the flag landed
 	// in remaining and nothing looked at it. The message borrows doctor's
 	// phrasing and its choice of the first unexpected argument, though not its
-	// format; --status has its own arity check, which runs earlier because it
-	// takes no host at all and can say so more precisely.
+	// format.
 	//
-	// Deliberately after --help, unlike the unknown-flag check above. That one
-	// runs first because a mistyped flag means the user asked for an action and
-	// would otherwise be handed usage text instead; `configure a b --help`
-	// contains an actual request for usage, so honouring it is not a surprise.
-	// TestExtraPositional_HelpStillWins pins this.
+	// Position matters in three directions, and each is pinned by a test.
+	// After --help, unlike the unknown-flag check above: a mistyped flag means
+	// the user asked for an action and would otherwise be handed usage text,
+	// whereas `configure a b --help` contains an actual request for usage.
+	// After --status, which has its own arity check and can say more precisely
+	// that it takes no host at all. Before the host lookup, so a user who typed
+	// two wrong things is not sent to fix a host name they must then delete.
 	if len(remaining) > 1 {
 		fmt.Fprintf(os.Stderr, "Error: expected one host, got %d (unexpected argument '%s')\n", len(remaining), remaining[1])
 		return 2

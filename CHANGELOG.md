@@ -31,8 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   real (#60)
 
   `configure <host> ""` — an unset shell variable, which expands to an empty
-  argument rather than to nothing — is a second positional too, and now exits 2
-  where it previously wrote the config
+  argument rather than to nothing — is a second positional too, and now exits
+  2 where it previously wrote the config
 
 - `--` is now honoured as the end-of-options marker in `configure` and
   `print-config`, so every argument after it is read as a positional. It was

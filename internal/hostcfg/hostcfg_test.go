@@ -1473,17 +1473,84 @@ func TestExtraPositional_HelpStillWins(t *testing.T) {
 // reported before the host is looked up, so a user who typed two wrong things
 // is told about the argument count rather than being sent to fix a host name
 // they will then have to remove anyway.
+//
+// Both commands, because covering only configure let print-config's guard be
+// moved below its host lookup with the whole suite green.
 func TestExtraPositional_BeatsUnknownHost(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func([]string) int
+	}{
+		{"configure", RunConfigure},
+		{"print-config", RunPrintConfig},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempHome(t)
+			var code int
+			_, stderr := captureStdio(t, func() { code = tc.run([]string{"bogus-host", "extra"}) })
+			if code != 2 {
+				t.Fatalf("expected exit 2, got %d", code)
+			}
+			if !strings.Contains(stderr, "expected one host") {
+				t.Errorf("expected the arity error first, got %q", stderr)
+			}
+			if strings.Contains(stderr, "unknown host") {
+				t.Errorf("host lookup should not have run: %q", stderr)
+			}
+		})
+	}
+}
+
+// TestExtraPositional_StatusKeepsItsOwnMessage pins the third edge. --status
+// takes no host at all, so it can say so more precisely than a generic arity
+// error; moving the arity guard above the --status block swaps the message and
+// left the whole suite green, because the existing --status test passes a
+// single host and asserts only the exit code.
+func TestExtraPositional_StatusKeepsItsOwnMessage(t *testing.T) {
 	withTempHome(t)
 	var code int
-	_, stderr := captureStdio(t, func() { code = RunConfigure([]string{"bogus-host", "extra"}) })
+	_, stderr := captureStdio(t, func() {
+		code = RunConfigure([]string{"--status", "claude-code", "claude-desktop"})
+	})
 	if code != 2 {
 		t.Fatalf("expected exit 2, got %d", code)
 	}
-	if !strings.Contains(stderr, "expected one host") {
-		t.Errorf("expected the arity error first, got %q", stderr)
+	if !strings.Contains(stderr, "takes no host argument") {
+		t.Errorf("expected --status's own message, got %q", stderr)
 	}
-	if strings.Contains(stderr, "unknown host") {
-		t.Errorf("host lookup should not have run: %q", stderr)
+	if strings.Contains(stderr, "expected one host") {
+		t.Errorf("the generic arity error displaced --status's: %q", stderr)
+	}
+}
+
+// TestExtraPositional_MessageFormat pins the parts of the message the other
+// tests only sample. Dropping the "Error: " prefix or the quotes around the
+// argument each left the suite green, because everything else searches for a
+// bare substring.
+func TestExtraPositional_MessageFormat(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func([]string) int
+		args []string
+		want string
+	}{
+		{"configure", RunConfigure, []string{"claude-desktop", "claude-code"},
+			"Error: expected one host, got 2 (unexpected argument 'claude-code')"},
+		{"print-config", RunPrintConfig, []string{"claude-code", "codex"},
+			"Error: expected one host, got 2 (unexpected argument 'codex')"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempHome(t)
+			var code int
+			_, stderr := captureStdio(t, func() { code = tc.run(tc.args) })
+			if code != 2 {
+				t.Errorf("expected exit 2, got %d", code)
+			}
+			if strings.TrimSpace(stderr) != tc.want {
+				t.Errorf("message mismatch\n got: %q\nwant: %q", strings.TrimSpace(stderr), tc.want)
+			}
+		})
 	}
 }

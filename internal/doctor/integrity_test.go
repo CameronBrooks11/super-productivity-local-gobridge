@@ -1155,3 +1155,230 @@ func TestConfirmed_IndexErrorSkipsTheSecondPass(t *testing.T) {
 		t.Fatalf("a deterministic index error must not trigger a re-pull, got %d /projects calls", calls)
 	}
 }
+
+// A task can be orphaned and duplicated at the same time, so reconciling by id
+// alone let the confirmed "orphaned" verdict swallow a "duplicated" observation
+// the two passes disagreed about. The id was still surfaced, so the user was
+// told the right task to look at — what vanished was the second symptom, which
+// is the hint about *how* it broke: a partially applied archive reads very
+// differently from a stray reference. Worse, Confirmed() then claimed the passes
+// agreed on everything when they had not.
+func TestConfirmed_CategoriesAreReconciledIndependently(t *testing.T) {
+	round := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		enc := func(v []map[string]any) {
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": v})
+		}
+		switch {
+		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
+			// "both" is in the archive on the first pass only: duplicated once.
+			round++
+			if round == 1 {
+				enc([]map[string]any{task("both")})
+				return
+			}
+			enc([]map[string]any{})
+		case r.URL.Path == "/tasks":
+			// "both" is active and referenced by nothing: orphaned every pass.
+			enc([]map[string]any{task("t1"), task("both")})
+		case r.URL.Path == "/projects":
+			enc([]map[string]any{project("t1")})
+		default:
+			enc([]map[string]any{})
+		}
+	}))
+	defer srv.Close()
+
+	r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The orphan survived both passes and is still a verdict.
+	if len(r.Orphaned) != 1 || r.Orphaned[0] != "both" {
+		t.Errorf("expected orphaned [both], got %v", r.Orphaned)
+	}
+	// The duplication was seen once, so it is not a verdict...
+	if len(r.Duplicated) != 0 {
+		t.Errorf("a once-seen duplication must not be confirmed, got %v", r.Duplicated)
+	}
+	// ...but it must not disappear either.
+	if len(r.Unresolved) != 1 || r.Unresolved[0] != "both" {
+		t.Errorf("expected the once-seen observation recorded as unresolved, got %v", r.Unresolved)
+	}
+	if r.Confirmed() {
+		t.Error("the passes disagreed about the duplicated category, so Confirmed() must be false")
+	}
+}
+
+// Unresolved is a list of ids, so an id the passes disagree about in two
+// categories at once is still reported once.
+func TestConfirmed_UnresolvedIDsAreNotDuplicatedAcrossCategories(t *testing.T) {
+	round := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		enc := func(v []map[string]any) {
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": v})
+		}
+		switch {
+		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
+			round++
+			if round == 1 {
+				// First pass only: "ghost" is duplicated *and*, being
+				// unreferenced and active, orphaned.
+				enc([]map[string]any{task("ghost")})
+				return
+			}
+			enc([]map[string]any{})
+		case r.URL.Path == "/tasks":
+			round2 := round
+			if round2 == 1 {
+				enc([]map[string]any{task("t1"), task("ghost")})
+				return
+			}
+			enc([]map[string]any{task("t1")})
+		case r.URL.Path == "/projects":
+			enc([]map[string]any{project("t1")})
+		default:
+			enc([]map[string]any{})
+		}
+	}))
+	defer srv.Close()
+
+	r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	seen := map[string]int{}
+	for _, id := range r.Unresolved {
+		seen[id]++
+	}
+	for id, n := range seen {
+		if n > 1 {
+			t.Errorf("id %q reported %d times in Unresolved: %v", id, n, r.Unresolved)
+		}
+	}
+}
+
+// --- The human --deep rendering ---
+//
+// printIntegrity had no test at all, yet its return value is what Run() turns
+// into the difference between exit 1 and exit 3: a false return with confirmed
+// anomalies means "inconsistent", a false return without them means "a check did
+// not complete". exitCode() was pinned at the unit level; the value fed into it
+// was not.
+
+// captureIntegrity runs printIntegrity with stdout redirected, returning what it
+// printed and what it returned.
+func captureIntegrity(t *testing.T, report IntegrityReport) (string, bool) {
+	t.Helper()
+	stdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = w
+	clean := printIntegrity(report)
+	w.Close()
+	os.Stdout = stdout
+
+	out, _ := io.ReadAll(r)
+	return string(out), clean
+}
+
+func TestPrintIntegrity_CleanStore(t *testing.T) {
+	out, clean := captureIntegrity(t, IntegrityReport{ActiveTasks: 3, Referenced: 3})
+	if !clean {
+		t.Error("a clean report must return true")
+	}
+	if !strings.Contains(out, "OK") {
+		t.Errorf("expected OK, got:\n%s", out)
+	}
+	if strings.Contains(out, "WARN") || strings.Contains(out, "UNCONFIRMED") {
+		t.Errorf("a clean report must not warn, got:\n%s", out)
+	}
+}
+
+func TestPrintIntegrity_ConfirmedAnomalyWarnsAndBlocksBackupImport(t *testing.T) {
+	out, clean := captureIntegrity(t, IntegrityReport{
+		ActiveTasks: 1, Dangling: []string{"GHOST"},
+	})
+	if clean {
+		t.Error("a confirmed anomaly must return false")
+	}
+	if !strings.Contains(out, "WARN") {
+		t.Errorf("expected WARN, got:\n%s", out)
+	}
+	if !strings.Contains(out, "GHOST") {
+		t.Errorf("expected the offending id, got:\n%s", out)
+	}
+	// The backup advice is the load-bearing line: a backup taken now captures
+	// the same in-memory inconsistency.
+	if !strings.Contains(out, "Do NOT import a backup") {
+		t.Errorf("expected the backup warning, got:\n%s", out)
+	}
+}
+
+// An unconfirmed report is not a verdict, so it must not render as one — but it
+// must not render as OK either.
+func TestPrintIntegrity_UnconfirmedIsNeitherWarnNorOK(t *testing.T) {
+	out, clean := captureIntegrity(t, IntegrityReport{
+		ActiveTasks: 1, Unresolved: []string{"MAYBE"}, Unconfirmed: true,
+	})
+	if clean {
+		t.Error("an unconfirmed report must return false")
+	}
+	if !strings.Contains(out, "UNCONFIRMED") {
+		t.Errorf("expected UNCONFIRMED, got:\n%s", out)
+	}
+	if strings.Contains(out, "WARN") {
+		t.Errorf("a once-seen observation is not a verdict, got:\n%s", out)
+	}
+	if !strings.Contains(out, "MAYBE") {
+		t.Errorf("expected the once-seen id, got:\n%s", out)
+	}
+}
+
+// A failed confirmation pass and a disagreement between two good passes both
+// leave ids in Unresolved, but they mean different things and the wording says
+// so. Getting this backwards tells the user their store is being edited when SP
+// actually went down.
+func TestPrintIntegrity_UnconfirmedReasonChangesTheExplanation(t *testing.T) {
+	withReason, _ := captureIntegrity(t, IntegrityReport{
+		Unresolved: []string{"X"}, Unconfirmed: true, UnconfirmedReason: "connection refused",
+	})
+	if !strings.Contains(withReason, "not necessarily transient") {
+		t.Errorf("a failed pass must not be blamed on concurrent editing, got:\n%s", withReason)
+	}
+	if !strings.Contains(withReason, "connection refused") {
+		t.Errorf("expected the carried reason, got:\n%s", withReason)
+	}
+
+	noReason, _ := captureIntegrity(t, IntegrityReport{
+		Unresolved: []string{"X"}, Unconfirmed: true,
+	})
+	if !strings.Contains(noReason, "being edited while the check ran") {
+		t.Errorf("a disagreement between two good passes should say so, got:\n%s", noReason)
+	}
+}
+
+// The #32 case as the user sees it: the confirmed orphan is a verdict and the
+// once-seen duplication is reported alongside it, rather than being swallowed.
+func TestPrintIntegrity_ConfirmedAndUnresolvedAreBothShown(t *testing.T) {
+	out, clean := captureIntegrity(t, IntegrityReport{
+		ActiveTasks: 2,
+		Orphaned:    []string{"both"},
+		Unresolved:  []string{"both"},
+		Unconfirmed: true,
+	})
+	if clean {
+		t.Error("a confirmed anomaly must return false")
+	}
+	if !strings.Contains(out, "orphaned tasks") {
+		t.Errorf("expected the confirmed orphan line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "seen in one pass") {
+		t.Errorf("expected the once-seen line, got:\n%s", out)
+	}
+}

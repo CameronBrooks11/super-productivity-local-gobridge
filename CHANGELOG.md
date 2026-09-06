@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `doctor --deep`'s confirmation pass reconciled the two runs by task id alone.
+  The categories are not mutually exclusive — one task can be orphaned and
+  duplicated at once — so a category confirmed for some id swallowed a different
+  category the passes disagreed about for that same id. The second symptom
+  vanished from the report and the run claimed the passes had agreed on
+  everything. Reconciliation is now per `(category, id)`; the id itself is still
+  reported once (#32)
+
 ## [0.3.1] - 2026-09-06
 
 ### Added

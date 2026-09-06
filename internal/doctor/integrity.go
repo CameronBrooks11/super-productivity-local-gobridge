@@ -289,6 +289,31 @@ func intersect(a, b []string) []string {
 	return out
 }
 
+// anomalyKey identifies one observation: a category plus the id it was seen for.
+// Reconciliation is per (category, id) because a task can legitimately appear in
+// more than one category at once.
+type anomalyKey struct {
+	category string
+	id       string
+}
+
+// anomalyGroup is one category's ids from a single report.
+type anomalyGroup struct {
+	category string
+	ids      []string
+}
+
+// byCategory returns the report's anomaly lists tagged with their category, in a
+// fixed order. One place to add a category, so a new one cannot be reconciled in
+// some loops and skipped in others.
+func (r IntegrityReport) byCategory() []anomalyGroup {
+	return []anomalyGroup{
+		{"dangling", r.Dangling},
+		{"orphaned", r.Orphaned},
+		{"duplicated", r.Duplicated},
+	}
+}
+
 // CheckIntegrityConfirmed runs the check and, when it finds anomalies, repeats
 // it and reports only those seen in both passes.
 //
@@ -331,8 +356,8 @@ func CheckIntegrityConfirmed(ctx context.Context, client *bridge.Client) (Integr
 		// pools that nothing references lands in both — so concatenating raw
 		// would report one id twice and inflate the count.
 		seen := make(map[string]struct{})
-		for _, group := range [][]string{first.Dangling, first.Orphaned, first.Duplicated} {
-			for _, id := range group {
+		for _, group := range first.byCategory() {
+			for _, id := range group.ids {
 				if _, dup := seen[id]; dup {
 					continue
 				}
@@ -353,23 +378,36 @@ func CheckIntegrityConfirmed(ctx context.Context, client *bridge.Client) (Integr
 	// recorded rather than dropped — dropping it would let a store the second
 	// pass found broken be reported clean — but it does not gate the anomalies
 	// that did survive both passes.
-	agreed := make(map[string]struct{})
-	for _, group := range [][]string{confirmed.Dangling, confirmed.Orphaned, confirmed.Duplicated} {
-		for _, id := range group {
-			agreed[id] = struct{}{}
+	//
+	// Reconciled per category, not per id. The categories are not mutually
+	// exclusive: one task can be orphaned and duplicated at once. Keying on the
+	// id alone let a category confirmed for some id swallow a *different*
+	// category the passes disagreed about for that same id, so the second
+	// symptom vanished and Confirmed() claimed agreement that did not happen.
+	agreed := make(map[anomalyKey]struct{})
+	for _, group := range confirmed.byCategory() {
+		for _, id := range group.ids {
+			agreed[anomalyKey{group.category, id}] = struct{}{}
 		}
 	}
-	seenOnce := make(map[string]struct{})
+	seenOnce := make(map[anomalyKey]struct{})
 	for _, pass := range []IntegrityReport{first, second} {
-		for _, group := range [][]string{pass.Dangling, pass.Orphaned, pass.Duplicated} {
-			for _, id := range group {
-				if _, ok := agreed[id]; !ok {
-					seenOnce[id] = struct{}{}
+		for _, group := range pass.byCategory() {
+			for _, id := range group.ids {
+				key := anomalyKey{group.category, id}
+				if _, ok := agreed[key]; !ok {
+					seenOnce[key] = struct{}{}
 				}
 			}
 		}
 	}
-	for id := range seenOnce {
+	// Unresolved is a list of ids, so an id seen once under two categories is
+	// still reported once.
+	unresolvedIDs := make(map[string]struct{}, len(seenOnce))
+	for key := range seenOnce {
+		unresolvedIDs[key.id] = struct{}{}
+	}
+	for id := range unresolvedIDs {
 		confirmed.Unresolved = append(confirmed.Unresolved, id)
 	}
 	sort.Strings(confirmed.Unresolved)

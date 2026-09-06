@@ -356,8 +356,12 @@ The guard narrows the problem but does not eliminate it. If a task is archived
 or deleted by someone else between the check and the archive call, the call
 still goes out against an id no longer in the active pool. That case is not
 harmless — it is the one that crashed Super Productivity's renderer and left its
-in-memory store inconsistent — so closing the window needs a fix upstream. See
-the reports in the project's issue tracker.
+in-memory store inconsistent — so closing the window needs a fix upstream. It is
+reported there as
+[#9946](https://github.com/super-productivity/super-productivity/issues/9946)
+(the store collapse) and
+[#9945](https://github.com/super-productivity/super-productivity/issues/9945)
+(the backup writer persisting the result).
 
 A transport failure is never recast as a missing task: if Super Productivity is
 unreachable, the error is `SP_UNAVAILABLE`.

@@ -17,11 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--status`, which previously returned 0 before anything examined the typo
   (#53)
 
-  Three tokens that used to be silently dropped now exit 2: `--`, a bare `-`,
-  and the `--flag=value` form (`--dry-run=true`). `--` was never honoured as an
-  end-of-options marker — it was discarded like any other unrecognised token —
-  so nothing that worked before stops working, but a script passing `--` now
-  gets an error instead of a no-op.
+  Two tokens that used to be silently dropped now exit 2: a bare `-`, and the
+  `--flag=value` form (`--dry-run=true`). Both previously wrote the config and
+  exited 0.
+
+- `--` is now honoured as the end-of-options marker in `configure` and
+  `print-config`, so every argument after it is read as a positional. It was
+  previously discarded like any other unrecognised token, which meant
+  `configure -- <host>` happened to work; rejecting it alongside the typos above
+  would have broken a standard shell idiom that did the right thing before
 
 - `doctor --deep`'s confirmation pass reconciled the two runs by task id alone.
   The categories are not mutually exclusive — one task can be orphaned and

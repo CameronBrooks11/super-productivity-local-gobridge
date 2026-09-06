@@ -1052,7 +1052,7 @@ func TestRunConfigure_UnknownFlag_WritesNothing(t *testing.T) {
 		args []string
 	}{
 		{"typo for --dry-run", []string{"--dry-runn", "claude-desktop"}},
-		{"bad flag before a good one", []string{"--bogus", "--remove", "claude-desktop"}},
+		{"bad flag before the host", []string{"--bogus", "claude-desktop"}},
 		{"bad flag after the host", []string{"claude-desktop", "--bogus"}},
 		{"short bad flag", []string{"-x", "claude-desktop"}},
 	}
@@ -1139,6 +1139,39 @@ func TestRunConfigure_UnknownFlag_TakesPrecedence(t *testing.T) {
 	}
 }
 
+// TestEndOfOptionsMarker covers what "--" is actually for: everything after it
+// is a positional, even when it looks like a flag. Deleting `endOfFlags = true`
+// leaves `--` consumed by its own case arm and every other test green, because
+// only a flag-shaped token *after* the marker tells the two apart.
+func TestEndOfOptionsMarker(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func([]string) int
+		args []string
+	}{
+		{"configure", RunConfigure, []string{"--", "--bogus"}},
+		{"print-config", RunPrintConfig, []string{"--", "--bogus"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempHome(t)
+			var code int
+			_, stderr := captureStdio(t, func() { code = tc.run(tc.args) })
+			if code != 2 {
+				t.Fatalf("expected exit 2, got %d", code)
+			}
+			// The token after "--" is a host name, not a flag, so it must be
+			// rejected as an unknown host.
+			if !strings.Contains(stderr, "unknown host") {
+				t.Errorf("expected --bogus to be read as a host, got %q", stderr)
+			}
+			if strings.Contains(stderr, "unknown flag") {
+				t.Errorf("token after -- was treated as a flag: %q", stderr)
+			}
+		})
+	}
+}
+
 // TestRunPrintConfig_UnknownFlag_PrintsNoConfig guards the print path: the
 // output is the whole product, so a rejected flag must not emit an entry the
 // user would paste into a host config.
@@ -1172,8 +1205,13 @@ func TestRunPrintConfig_UnknownFlag_PrintsNoConfig(t *testing.T) {
 				!strings.Contains(stderr, "unknown flag '"+tc.want+"'") {
 				t.Errorf("expected %s to be the rejected flag, got %q", tc.want, stderr)
 			}
-			if strings.Contains(stdout, "sp-local-bridge") && strings.Contains(stdout, "mcp") {
-				t.Errorf("a rejected command printed a usable config entry: %q", stdout)
+			// Assert on the entry name, not the binary name: under `go test`
+			// resolveMCPCommand returns the test binary's path, so stdout never
+			// contains "sp-local-bridge" and a check for it could not fail.
+			// printConfigUsage also goes to stdout, and it never names the
+			// entry, so this discriminates the reject path from the print path.
+			if strings.Contains(stdout, hosts[HostClaudeCode].entryName) {
+				t.Errorf("a rejected command printed a config entry: %q", stdout)
 			}
 		})
 	}
@@ -1187,20 +1225,34 @@ func TestRunPrintConfig_ValidFlagsStillAccepted(t *testing.T) {
 	cases := []struct {
 		name string
 		args []string
+		// wantBare is "yes" when the output should carry the bare command name,
+		// "no" when it should carry a resolved path, and "" to skip the check
+		// (the help cases print no entry at all).
+		wantBare string
 	}{
-		{"--help", []string{"--help"}},
-		{"-h", []string{"-h"}},
-		{"--absolute", []string{"--absolute", "claude-code"}},
-		{"--bare", []string{"--bare", "claude-code"}},
-		{"flag after the host", []string{"claude-code", "--bare"}},
+		{"--help", []string{"--help"}, ""},
+		{"-h", []string{"-h"}, ""},
+		{"--absolute", []string{"--absolute", "claude-code"}, "no"},
+		{"--bare", []string{"--bare", "claude-code"}, "yes"},
+		{"flag after the host", []string{"claude-code", "--bare"}, "yes"},
+		{"end-of-options marker", []string{"--", "claude-code"}, "no"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			withTempHome(t)
 			var code int
-			_, stderr := captureStdio(t, func() { code = RunPrintConfig(tc.args) })
+			stdout, stderr := captureStdio(t, func() { code = RunPrintConfig(tc.args) })
 			if code != 0 {
-				t.Fatalf("expected exit 0, got %d (stderr: %q)", code, stderr)
+				t.Errorf("expected exit 0, got %d (stderr: %q)", code, stderr)
+			}
+			if tc.wantBare == "" {
+				return
+			}
+			// Exit 0 alone does not say the flag did anything: flipping the
+			// value --bare and --absolute set left the whole suite green.
+			if got := strings.Contains(stdout, `"sp-local-bridge"`); got != (tc.wantBare == "yes") {
+				t.Errorf("%s: bare command in output = %v, want %v\noutput: %s",
+					tc.name, got, tc.wantBare == "yes", stdout)
 			}
 		})
 	}

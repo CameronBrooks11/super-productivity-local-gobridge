@@ -325,8 +325,18 @@ func RunPrintConfig(args []string) int {
 	// with a "-" prefix, so the empty string means "none".
 	var badFlag string
 
+	endOfFlags := false
 	for _, arg := range args {
+		if endOfFlags {
+			remaining = append(remaining, arg)
+			continue
+		}
 		switch arg {
+		case "--":
+			// Standard end-of-options marker. v0.3.1 discarded it and still
+			// resolved the host, so `print-config -- <host>` worked; rejecting
+			// it as an unknown flag would have been a regression.
+			endOfFlags = true
 		case "--absolute":
 			absolute = true
 		case "--bare":
@@ -436,8 +446,17 @@ func RunConfigure(args []string) int {
 	// with a "-" prefix, so the empty string means "none".
 	var badFlag string
 
+	endOfFlags := false
 	for _, arg := range args {
+		if endOfFlags {
+			remaining = append(remaining, arg)
+			continue
+		}
 		switch arg {
+		case "--":
+			// See RunPrintConfig: `configure -- <host>` wrote the config on
+			// v0.3.1, so this must keep working.
+			endOfFlags = true
 		case "--dry-run":
 			dryRun = true
 		case "--remove":

@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--status`, which previously returned 0 before anything examined the typo
   (#53)
 
+  Three tokens that used to be silently dropped now exit 2: `--`, a bare `-`,
+  and the `--flag=value` form (`--dry-run=true`). `--` was never honoured as an
+  end-of-options marker — it was discarded like any other unrecognised token —
+  so nothing that worked before stops working, but a script passing `--` now
+  gets an error instead of a no-op.
+
 - `doctor --deep`'s confirmation pass reconciled the two runs by task id alone.
   The categories are not mutually exclusive — one task can be orphaned and
   duplicated at once — so a category confirmed for some id swallowed a different

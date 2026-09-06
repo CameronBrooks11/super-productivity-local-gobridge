@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -1051,7 +1052,7 @@ func TestRunConfigure_UnknownFlag_WritesNothing(t *testing.T) {
 		args []string
 	}{
 		{"typo for --dry-run", []string{"--dry-runn", "claude-desktop"}},
-		{"bad flag before a good one", []string{"--bogus", "--dry-run", "claude-desktop"}},
+		{"bad flag before a good one", []string{"--bogus", "--remove", "claude-desktop"}},
 		{"bad flag after the host", []string{"claude-desktop", "--bogus"}},
 		{"short bad flag", []string{"-x", "claude-desktop"}},
 	}
@@ -1060,8 +1061,11 @@ func TestRunConfigure_UnknownFlag_WritesNothing(t *testing.T) {
 			home := withTempHome(t)
 			var code int
 			_, stderr := captureStdio(t, func() { code = RunConfigure(tc.args) })
+			// Errorf, not Fatalf: under the bug this guards, the exit code is 0
+			// and a Fatalf here would return before the assertion that actually
+			// matters. The file check is the point of the test.
 			if code != 2 {
-				t.Fatalf("expected exit 2, got %d", code)
+				t.Errorf("expected exit 2, got %d", code)
 			}
 			if !strings.Contains(stderr, "unknown flag") {
 				t.Errorf("stderr should name the problem, got %q", stderr)
@@ -1142,24 +1146,61 @@ func TestRunPrintConfig_UnknownFlag_PrintsNoConfig(t *testing.T) {
 	cases := []struct {
 		name string
 		args []string
+		// want names which flag must be rejected, so a case carrying a valid
+		// flag alongside a bad one fails if the valid one is what got rejected.
+		want string
 	}{
-		{"typo for --bare", []string{"--bear", "claude-code"}},
-		{"bad flag with a good one", []string{"--absolute", "--bogus", "claude-code"}},
-		{"over --help", []string{"--bogus", "--help"}},
+		{"typo for --bare", []string{"--bear", "claude-code"}, "--bear"},
+		{"bad flag with a good one", []string{"--absolute", "--bogus", "claude-code"}, "--bogus"},
+		{"over --help", []string{"--bogus", "--help"}, "--bogus"},
+		// Single-dash, because narrowing the prefix test to "--" would send
+		// "-x" down the positional path and report it as an unknown *host* —
+		// still exit 2, so only the message distinguishes the two.
+		{"short bad flag", []string{"-x", "claude-code"}, "-x"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			withTempHome(t)
 			var code int
 			stdout, stderr := captureStdio(t, func() { code = RunPrintConfig(tc.args) })
+			// Errorf for the same reason as above: the stdout assertion below is
+			// what distinguishes the fix from the bug.
 			if code != 2 {
-				t.Fatalf("expected exit 2, got %d", code)
+				t.Errorf("expected exit 2, got %d", code)
 			}
-			if !strings.Contains(stderr, "unknown flag") {
-				t.Errorf("stderr should name the problem, got %q", stderr)
+			if !strings.Contains(stderr, "unknown flag "+strconv.Quote(tc.want)) &&
+				!strings.Contains(stderr, "unknown flag '"+tc.want+"'") {
+				t.Errorf("expected %s to be the rejected flag, got %q", tc.want, stderr)
 			}
 			if strings.Contains(stdout, "sp-local-bridge") && strings.Contains(stdout, "mcp") {
 				t.Errorf("a rejected command printed a usable config entry: %q", stdout)
+			}
+		})
+	}
+}
+
+// TestRunPrintConfig_ValidFlagsStillAccepted is print-config's twin of the test
+// below. Without it, deleting `case "--absolute"` or the "-h" arm from
+// print-config's loop left the whole suite green, because every other
+// print-config test in this file happens to pass no flag at all.
+func TestRunPrintConfig_ValidFlagsStillAccepted(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"--help", []string{"--help"}},
+		{"-h", []string{"-h"}},
+		{"--absolute", []string{"--absolute", "claude-code"}},
+		{"--bare", []string{"--bare", "claude-code"}},
+		{"flag after the host", []string{"claude-code", "--bare"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempHome(t)
+			var code int
+			_, stderr := captureStdio(t, func() { code = RunPrintConfig(tc.args) })
+			if code != 0 {
+				t.Fatalf("expected exit 0, got %d (stderr: %q)", code, stderr)
 			}
 		})
 	}

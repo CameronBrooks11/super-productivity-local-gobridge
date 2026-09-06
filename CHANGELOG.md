@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-06
+
 ### Added
 
 - `configure --status` reports which hosts have an MCP entry and in which scope,
@@ -243,7 +245,8 @@ The Go bridge skips 0.2.x because the Python bridge had already spent it:
 reserved on PyPI. The Go bridge's own 0.1.0 and 0.1.1 above do collide with
 Python tags of the same name, which is the confusion 0.3.0 stops repeating.
 
-[Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.1.1...v0.3.0
 [0.1.1]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/releases/tag/v0.1.0

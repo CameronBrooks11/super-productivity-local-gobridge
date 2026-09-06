@@ -1405,3 +1405,147 @@ func TestPrintIntegrity_ConfirmedAndUnresolvedAreBothShown(t *testing.T) {
 		t.Errorf("expected the once-seen line, got:\n%s", out)
 	}
 }
+
+// twoPassServer serves one fixture on the first pass and another on the second.
+// The pass advances on the active-tasks request because CheckIntegrity fetches
+// the active pool before the archived one; counting it anywhere else makes the
+// first pass read a fixture that has not been selected yet.
+func twoPassServer(t *testing.T, p1, p2 storeFixture) *httptest.Server {
+	t.Helper()
+	pass := 0
+	cur := p1
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		enc := func(v []map[string]any) {
+			if v == nil {
+				v = []map[string]any{}
+			}
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": v})
+		}
+		switch {
+		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
+			enc(cur.archived)
+		case r.URL.Path == "/tasks":
+			pass++
+			if pass == 1 {
+				cur = p1
+			} else {
+				cur = p2
+			}
+			enc(cur.active)
+		case r.URL.Path == "/projects":
+			enc(cur.projects)
+		case r.URL.Path == "/tags":
+			enc(cur.tags)
+		default:
+			enc(nil)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// Every category must be filtered by the confirmation pass, and the coverage has
+// to be symmetric across them. It was not: deleting `orphaned` from
+// categoryRefs left the whole suite green, while deleting `dangling` failed 13
+// tests and `duplicated` failed 2. An unfiltered category does not come out
+// empty — `confirmed` starts as a copy of the second pass, so it comes out
+// holding that pass's findings, is treated as agreed, and swallows the once-seen
+// observation. That reports one observation as confirmed and exits 3.
+//
+// Two constraints make these fixtures look fussier than they are:
+//   - the once-seen anomaly must be in the SECOND pass. In the first, the
+//     unfiltered copy of pass two would be empty anyway and the bug stays hidden.
+//   - the first pass needs an anomaly of its own, or CheckIntegrityConfirmed
+//     short-circuits on first.Clean() and never runs a second pass. Every case
+//     below uses a persistent dangling reference to "ghost" for that.
+func TestConfirmed_EachCategorySeenOnceIsUnresolved(t *testing.T) {
+	for _, tc := range []struct {
+		category string
+		p1, p2   storeFixture
+	}{
+		{
+			category: "dangling",
+			p1: storeFixture{active: []map[string]any{task("t1")},
+				projects: []map[string]any{project("t1", "ghost")}},
+			p2: storeFixture{active: []map[string]any{task("t1")},
+				projects: []map[string]any{project("t1", "ghost", "late")}},
+		},
+		{
+			category: "orphaned",
+			p1: storeFixture{active: []map[string]any{task("t1")},
+				projects: []map[string]any{project("t1", "ghost")}},
+			p2: storeFixture{active: []map[string]any{task("t1"), task("late")},
+				projects: []map[string]any{project("t1", "ghost")}},
+		},
+		{
+			category: "duplicated",
+			p1: storeFixture{active: []map[string]any{task("t1"), task("late")},
+				projects: []map[string]any{project("t1", "ghost", "late")}},
+			p2: storeFixture{active: []map[string]any{task("t1"), task("late")},
+				archived: []map[string]any{task("late")},
+				projects: []map[string]any{project("t1", "ghost", "late")}},
+		},
+	} {
+		t.Run(tc.category, func(t *testing.T) {
+			srv := twoPassServer(t, tc.p1, tc.p2)
+			r, err := CheckIntegrityConfirmed(context.Background(), bridge.NewClient(srv.URL))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// The fixture must actually have run two passes and found the
+			// persistent anomaly, or nothing below means anything.
+			if !containsID(r.Dangling, "ghost") {
+				t.Fatalf("fixture did not produce the persistent anomaly, got %+v", r)
+			}
+
+			var confirmedForCategory []string
+			for _, group := range r.byCategory() {
+				if group.category == tc.category {
+					confirmedForCategory = group.ids
+				}
+			}
+			if containsID(confirmedForCategory, "late") {
+				t.Errorf("%s: a once-seen observation must not be confirmed, got %v",
+					tc.category, confirmedForCategory)
+			}
+			if !containsID(r.Unresolved, "late") {
+				t.Errorf("%s: a once-seen observation must be recorded as unresolved, got %v",
+					tc.category, r.Unresolved)
+			}
+			if !r.Unconfirmed {
+				t.Errorf("%s: the passes disagreed, so Unconfirmed must be true", tc.category)
+			}
+		})
+	}
+}
+
+// containsID reports whether an id list holds want. Distinct from doctor_test's
+// contains, which is a substring check on a string.
+func containsID(ids []string, want string) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
+}
+
+// The render paths name each category by hand, which categoryRefs' comment
+// discloses. This turns "remember to edit integrityJSON too" into a test
+// failure: a category with no JSON key emits "clean": false with every list
+// empty, which tells a consumer nothing about what was wrong.
+func TestIntegrityJSON_HasAKeyForEveryCategory(t *testing.T) {
+	report := IntegrityReport{}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(integrityJSON(report)), &decoded); err != nil {
+		t.Fatalf("integrityJSON is not valid JSON: %v", err)
+	}
+	for _, group := range report.byCategory() {
+		if _, ok := decoded[group.category]; !ok {
+			t.Errorf("category %q has no key in the --json output; integrityJSON needs updating",
+				group.category)
+		}
+	}
+}

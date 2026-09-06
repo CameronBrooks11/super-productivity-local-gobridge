@@ -311,12 +311,12 @@ type anomalyGroup struct {
 // byCategory returns the report's anomaly lists tagged with their category, in a
 // fixed order.
 //
-// categoryRefs is the single list; this derives from it. A category added there
-// is filtered, reconciled and counted by HasConfirmedAnomalies with no other
-// edit. The render
-// paths — printIntegrity and integrityJSON — still name each category by hand,
-// because each needs its own prose and its own JSON key; adding a category means
-// editing those too. HasConfirmedAnomalies goes through byCategory.
+// categoryRefs is the single list and this derives from it, so a category added
+// there is filtered, reconciled, and counted by HasConfirmedAnomalies with no
+// other edit. The render paths are the exception: printIntegrity and
+// integrityJSON still name each category by hand, because each needs its own
+// prose and its own JSON key. TestIntegrityJSON_HasAKeyForEveryCategory catches
+// the JSON half of that; the prose half is on the author.
 func (r IntegrityReport) byCategory() []anomalyGroup {
 	// Derived from categoryRefs rather than listing the categories a second
 	// time. Two hand-maintained lists would drift, and the one that drifts

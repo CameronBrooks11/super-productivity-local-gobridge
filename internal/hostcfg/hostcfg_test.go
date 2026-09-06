@@ -1008,3 +1008,186 @@ func TestRunConfigure_Status_AlwaysNamesSupportedHosts(t *testing.T) {
 		})
 	}
 }
+
+// captureStdio runs fn with stdout and stderr redirected, returning what each
+// received. print-config writes its payload to stdout and errors to stderr, so
+// a test that only checked the exit code could not tell a rejected flag from a
+// printed config.
+func captureStdio(t *testing.T, fn func()) (stdout, stderr string) {
+	t.Helper()
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	origOut, origErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = outW, errW
+	defer func() { os.Stdout, os.Stderr = origOut, origErr }()
+
+	fn()
+
+	outW.Close()
+	errW.Close()
+	var outBuf, errBuf bytes.Buffer
+	if _, err := io.Copy(&outBuf, outR); err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	if _, err := io.Copy(&errBuf, errR); err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	return outBuf.String(), errBuf.String()
+}
+
+// TestRunConfigure_UnknownFlag_WritesNothing is the regression guard for #53.
+// The exit code is not the point: `configure --dry-runn <host>` exited 0 and
+// wrote the config for real, so the assertion that matters is the absence of
+// the file the user was told they would only preview.
+func TestRunConfigure_UnknownFlag_WritesNothing(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"typo for --dry-run", []string{"--dry-runn", "claude-desktop"}},
+		{"bad flag before a good one", []string{"--bogus", "--dry-run", "claude-desktop"}},
+		{"bad flag after the host", []string{"claude-desktop", "--bogus"}},
+		{"short bad flag", []string{"-x", "claude-desktop"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := withTempHome(t)
+			var code int
+			_, stderr := captureStdio(t, func() { code = RunConfigure(tc.args) })
+			if code != 2 {
+				t.Fatalf("expected exit 2, got %d", code)
+			}
+			if !strings.Contains(stderr, "unknown flag") {
+				t.Errorf("stderr should name the problem, got %q", stderr)
+			}
+			configPath := testConfigPath(home, HostClaudeDesktop)
+			if _, err := os.Stat(configPath); err == nil {
+				t.Fatalf("a rejected command wrote %s", configPath)
+			}
+		})
+	}
+}
+
+// TestUnknownFlag_NamesTheFirstOne pins the choice doctor made: naming the last
+// bad flag sends the user round the loop once per typo.
+//
+// Both commands are covered because both keep their own copy of the loop. A
+// mutation sweep that flipped only print-config's copy to keep the last flag
+// left the suite green, because the first version of this test called
+// RunConfigure alone.
+func TestUnknownFlag_NamesTheFirstOne(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func([]string) int
+		args []string
+	}{
+		{"configure", RunConfigure, []string{"--aaa", "--zzz", "claude-desktop"}},
+		{"print-config", RunPrintConfig, []string{"--aaa", "--zzz", "claude-code"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempHome(t)
+			var code int
+			_, stderr := captureStdio(t, func() { code = tc.run(tc.args) })
+			if code != 2 {
+				t.Fatalf("expected exit 2, got %d", code)
+			}
+			if !strings.Contains(stderr, "--aaa") {
+				t.Errorf("expected the first bad flag in stderr, got %q", stderr)
+			}
+			if strings.Contains(stderr, "--zzz") {
+				t.Errorf("expected only the first bad flag, but stderr named --zzz too: %q", stderr)
+			}
+		})
+	}
+}
+
+// TestRunConfigure_UnknownFlag_TakesPrecedence covers the two paths that used
+// to swallow a typo by returning 0 before anything examined it: --help printed
+// usage, and --status printed a report the caller never asked for.
+func TestRunConfigure_UnknownFlag_TakesPrecedence(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"over --help", []string{"--bogus", "--help"}},
+		{"over --help, flag second", []string{"--help", "--bogus"}},
+		{"over --status", []string{"--status", "--bogus"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempHome(t)
+			var code int
+			_, stderr := captureStdio(t, func() { code = RunConfigure(tc.args) })
+			if code != 2 {
+				t.Fatalf("expected exit 2, got %d", code)
+			}
+			if !strings.Contains(stderr, "--bogus") {
+				t.Errorf("expected --bogus named in stderr, got %q", stderr)
+			}
+		})
+	}
+}
+
+// TestRunPrintConfig_UnknownFlag_PrintsNoConfig guards the print path: the
+// output is the whole product, so a rejected flag must not emit an entry the
+// user would paste into a host config.
+func TestRunPrintConfig_UnknownFlag_PrintsNoConfig(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"typo for --bare", []string{"--bear", "claude-code"}},
+		{"bad flag with a good one", []string{"--absolute", "--bogus", "claude-code"}},
+		{"over --help", []string{"--bogus", "--help"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempHome(t)
+			var code int
+			stdout, stderr := captureStdio(t, func() { code = RunPrintConfig(tc.args) })
+			if code != 2 {
+				t.Fatalf("expected exit 2, got %d", code)
+			}
+			if !strings.Contains(stderr, "unknown flag") {
+				t.Errorf("stderr should name the problem, got %q", stderr)
+			}
+			if strings.Contains(stdout, "sp-local-bridge") && strings.Contains(stdout, "mcp") {
+				t.Errorf("a rejected command printed a usable config entry: %q", stdout)
+			}
+		})
+	}
+}
+
+// TestRunConfigure_ValidFlagsStillAccepted is the other half: rejecting typos
+// is only correct if it does not also reject the real flags.
+func TestRunConfigure_ValidFlagsStillAccepted(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want int
+	}{
+		{"--help", []string{"--help"}, 0},
+		{"-h", []string{"-h"}, 0},
+		{"--status", []string{"--status"}, 0},
+		{"--dry-run", []string{"--dry-run", "claude-desktop"}, 0},
+		{"--remove on an absent entry", []string{"--remove", "claude-desktop"}, 0},
+		{"--dry-run --remove", []string{"--dry-run", "--remove", "claude-desktop"}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempHome(t)
+			var code int
+			captureStdio(t, func() { code = RunConfigure(tc.args) })
+			if code != tc.want {
+				t.Fatalf("expected exit %d, got %d", tc.want, code)
+			}
+		})
+	}
+}

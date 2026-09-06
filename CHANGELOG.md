@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `configure` and `print-config` discarded any unrecognised token beginning with
+  `-`, so a mistyped flag was not an error. `configure --dry-runn <host>` wrote
+  the config for real and exited 0: the user asked for a preview and got the
+  change, with no diagnostic. Both commands now reject the first unrecognised
+  flag with exit 2, matching `doctor` — including ahead of `--help` and
+  `--status`, which previously returned 0 before anything examined the typo
+  (#53)
+
 - `doctor --deep`'s confirmation pass reconciled the two runs by task id alone.
   The categories are not mutually exclusive — one task can be orphaned and
   duplicated at once — so a category confirmed for some id swallowed a different

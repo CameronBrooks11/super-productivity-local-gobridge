@@ -318,7 +318,10 @@ func buildEntry(host string) map[string]any {
 // RunPrintConfig prints the MCP configuration snippet for a host. Returns exit code.
 func RunPrintConfig(args []string) int {
 	absolute := true
+	wantHelp := false
 	var remaining []string
+	var badFlag string
+	badFlagSeen := false
 
 	for _, arg := range args {
 		switch arg {
@@ -327,13 +330,30 @@ func RunPrintConfig(args []string) int {
 		case "--bare":
 			absolute = false
 		case "--help", "-h":
-			printConfigUsage()
-			return 0
+			wantHelp = true
 		default:
 			if !strings.HasPrefix(arg, "-") {
 				remaining = append(remaining, arg)
+				continue
+			}
+			// Keep the first bad flag, as doctor does: naming the last sends
+			// the user round the loop once per typo.
+			if !badFlagSeen {
+				badFlag, badFlagSeen = arg, true
 			}
 		}
+	}
+
+	// Checked before --help so `print-config --bogus --help` reports the typo
+	// rather than exiting 0 on the usage text.
+	if badFlagSeen {
+		fmt.Fprintf(os.Stderr, "Error: unknown flag '%s'\n", badFlag)
+		printConfigUsage()
+		return 2
+	}
+	if wantHelp {
+		printConfigUsage()
+		return 0
 	}
 
 	if len(remaining) == 0 {
@@ -407,7 +427,10 @@ func RunConfigure(args []string) int {
 	dryRun := false
 	remove := false
 	status := false
+	wantHelp := false
 	var remaining []string
+	var badFlag string
+	badFlagSeen := false
 
 	for _, arg := range args {
 		switch arg {
@@ -418,13 +441,33 @@ func RunConfigure(args []string) int {
 		case "--status":
 			status = true
 		case "--help", "-h":
-			configureUsage()
-			return 0
+			wantHelp = true
 		default:
 			if !strings.HasPrefix(arg, "-") {
 				remaining = append(remaining, arg)
+				continue
+			}
+			// A dropped flag is not a cosmetic problem here: `--dry-runn`
+			// silently became a real write that exited 0, so the user asked
+			// for a preview and got the change. Keep the first bad flag, as
+			// doctor does, rather than the last.
+			if !badFlagSeen {
+				badFlag, badFlagSeen = arg, true
 			}
 		}
+	}
+
+	// Checked before --help, and before --status, so a typo is reported rather
+	// than swallowed by usage text or by a status report the caller did not
+	// ask for.
+	if badFlagSeen {
+		fmt.Fprintf(os.Stderr, "Error: unknown flag '%s'\n", badFlag)
+		configureUsage()
+		return 2
+	}
+	if wantHelp {
+		configureUsage()
+		return 0
 	}
 
 	// --status reports on every host, so it takes no host argument and cannot

@@ -1271,6 +1271,11 @@ func TestRunConfigure_ValidFlagsStillAccepted(t *testing.T) {
 		{"--status", []string{"--status"}, 0},
 		{"--dry-run", []string{"--dry-run", "claude-desktop"}, 0},
 		{"--remove on an absent entry", []string{"--remove", "claude-desktop"}, 0},
+		// The positive half of TestEndOfOptionsMarker: the host after "--" must
+		// still resolve. Without this, making `case "--"` keep the marker as a
+		// positional passed every other test while `configure -- <host>` went
+		// back to exit 2.
+		{"end-of-options marker", []string{"--", "claude-desktop"}, 0},
 		{"--dry-run --remove", []string{"--dry-run", "--remove", "claude-desktop"}, 0},
 	}
 	for _, tc := range cases {

@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `configure -- <host>` happened to work; rejecting it alongside the typos above
   would have broken a standard shell idiom that did the right thing before
 
+  This changes a third class of input, and one shape of it deserves calling out.
+  A flag written *after* `--` is now a positional and is no longer honoured, so
+  `configure <host> -- --dry-run` writes the config for real where it used to
+  preview — the same surprise #53 was filed for, arriving by a different route.
+  It reaches that state only because extra positionals are still ignored (#60);
+  rejecting them turns it into an error instead. Both are POSIX-correct
+  individually, and the combination is not
+
 - `doctor --deep`'s confirmation pass reconciled the two runs by task id alone.
   The categories are not mutually exclusive — one task can be orphaned and
   duplicated at once — so a category confirmed for some id swallowed a different

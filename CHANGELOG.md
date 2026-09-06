@@ -24,11 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `configure` and `print-config` took the host from the first positional and
   discarded the rest, so `configure claude-code claude-desktop` configured one
   host, said nothing about the other, and exited 0. A second positional is now
-  rejected with exit 2, naming the argument that was not expected — the shape
-  `configure --status` already used. This also closes the one hazard the `--`
-  change below introduced: `configure <host> -- --dry-run` put `--dry-run` in
+  rejected with exit 2, naming the first argument that was not expected, as
+  `doctor` does for its own unrecognised arguments. This also closes the one
+  hazard the `--` change below introduced: `configure <host> -- --dry-run` put `--dry-run` in
   the positional list, where nothing looked at it, and wrote the config for
   real (#60)
+
+  `configure <host> ""` — an unset shell variable, which expands to an empty
+  argument rather than to nothing — is a second positional too, and now exits 2
+  where it previously wrote the config
 
 - `--` is now honoured as the end-of-options marker in `configure` and
   `print-config`, so every argument after it is read as a positional. It was
@@ -37,8 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   would have broken a standard shell idiom that did the right thing before
 
   This changes a third class of input. A flag written *after* `--` is now a
-  positional and is no longer honoured; combined with #60 below, that is an
-  error rather than a silent write
+  positional and is no longer honoured; combined with the change above, that is
+  an error rather than a silent write
 
 - `doctor --deep`'s confirmation pass reconciled the two runs by task id alone.
   The categories are not mutually exclusive — one task can be orphaned and

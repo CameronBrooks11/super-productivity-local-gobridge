@@ -3,6 +3,7 @@ package hostcfg
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -1298,18 +1299,28 @@ func TestExtraPositional_Rejected(t *testing.T) {
 	cases := []struct {
 		name string
 		args []string
-		// wrote names the host whose config file must NOT appear, or "" when
-		// the shape could not have written one anyway.
+		// wrote names the host whose config file must NOT appear.
 		wrote string
+		// count is the number of positionals the message must report. Without
+		// a three-positional case, len(remaining) is indistinguishable from a
+		// hardcoded 2.
+		count int
 		// unexpected is the argument the message must name. Naming the host
 		// instead would still say "expected one host" and still exit 2, so
 		// without this the message could point at the wrong argument and no
 		// test would notice.
 		unexpected string
 	}{
-		{"two hosts", []string{"claude-desktop", "claude-code"}, HostClaudeDesktop, "claude-code"},
-		{"flag after the marker", []string{"claude-desktop", "--", "--dry-run"}, HostClaudeDesktop, "--dry-run"},
-		{"junk after the host", []string{"claude-desktop", "nonsense"}, HostClaudeDesktop, "nonsense"},
+		{"two hosts", []string{"claude-desktop", "claude-code"}, HostClaudeDesktop, 2, "claude-code"},
+		// Three, because with only N=2 fixtures `len(remaining)` and the index
+		// `remaining[1]` are indistinguishable from the constant 2 and from
+		// "the last one" - two mutations that survived the first sweep.
+		{"three hosts", []string{"claude-desktop", "claude-code", "codex"}, HostClaudeDesktop, 3, "claude-code"},
+		{"flag after the marker", []string{"claude-desktop", "--", "--dry-run"}, HostClaudeDesktop, 2, "--dry-run"},
+		{"junk after the host", []string{"claude-desktop", "nonsense"}, HostClaudeDesktop, 2, "nonsense"},
+		// An unset shell variable, which expands to an empty argument rather
+		// than to nothing.
+		{"empty argument after the host", []string{"claude-desktop", ""}, HostClaudeDesktop, 2, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1322,11 +1333,14 @@ func TestExtraPositional_Rejected(t *testing.T) {
 			if !strings.Contains(stderr, "expected one host") {
 				t.Errorf("stderr should name the problem, got %q", stderr)
 			}
-			if !strings.Contains(stderr, tc.unexpected) {
-				t.Errorf("expected %q named as the unexpected argument, got %q", tc.unexpected, stderr)
+			if !strings.Contains(stderr, fmt.Sprintf("got %d", tc.count)) {
+				t.Errorf("expected the message to report %d positionals, got %q", tc.count, stderr)
 			}
-			if tc.wrote == "" {
-				return
+			// An empty unexpected argument is still worth the case: it proves
+			// the command rejects rather than silently proceeding. There is no
+			// substring to look for, so only the count assertion above applies.
+			if tc.unexpected != "" && !strings.Contains(stderr, tc.unexpected) {
+				t.Errorf("expected %q named as the unexpected argument, got %q", tc.unexpected, stderr)
 			}
 			if _, err := os.Stat(testConfigPath(home, tc.wrote)); err == nil {
 				t.Fatalf("a rejected command configured %s", tc.wrote)
@@ -1339,22 +1353,39 @@ func TestExtraPositional_Rejected(t *testing.T) {
 // hazard is different: it cannot write a file, but it can print an entry for a
 // host the caller did not name last, which is then pasted somewhere by hand.
 func TestExtraPositional_RejectedByPrintConfig(t *testing.T) {
-	withTempHome(t)
-	var code int
-	stdout, stderr := captureStdio(t, func() {
-		code = RunPrintConfig([]string{"claude-code", "codex"})
-	})
-	if code != 2 {
-		t.Errorf("expected exit 2, got %d", code)
+	cases := []struct {
+		name       string
+		args       []string
+		count      int
+		unexpected string
+	}{
+		{"two hosts", []string{"claude-code", "codex"}, 2, "codex"},
+		// Three, for the same reason as the configure table: with only N=2 the
+		// count is indistinguishable from a hardcoded 2, and remaining[1] from
+		// "the last one". Both mutations survived until this case existed.
+		{"three hosts", []string{"claude-code", "codex", "claude-desktop"}, 3, "codex"},
 	}
-	if !strings.Contains(stderr, "expected one host") {
-		t.Errorf("stderr should name the problem, got %q", stderr)
-	}
-	if !strings.Contains(stderr, "codex") {
-		t.Errorf("expected the extra argument named, got %q", stderr)
-	}
-	if strings.Contains(stdout, hosts[HostClaudeCode].entryName) {
-		t.Errorf("a rejected command printed a config entry: %q", stdout)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTempHome(t)
+			var code int
+			stdout, stderr := captureStdio(t, func() { code = RunPrintConfig(tc.args) })
+			if code != 2 {
+				t.Errorf("expected exit 2, got %d", code)
+			}
+			if !strings.Contains(stderr, "expected one host") {
+				t.Errorf("stderr should name the problem, got %q", stderr)
+			}
+			if !strings.Contains(stderr, fmt.Sprintf("got %d", tc.count)) {
+				t.Errorf("expected the message to report %d positionals, got %q", tc.count, stderr)
+			}
+			if !strings.Contains(stderr, tc.unexpected) {
+				t.Errorf("expected %q named as the unexpected argument, got %q", tc.unexpected, stderr)
+			}
+			if strings.Contains(stdout, hosts[HostClaudeCode].entryName) {
+				t.Errorf("a rejected command printed a config entry: %q", stdout)
+			}
+		})
 	}
 }
 

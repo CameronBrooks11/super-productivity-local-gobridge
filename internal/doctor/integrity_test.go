@@ -1407,13 +1407,20 @@ func TestPrintIntegrity_ConfirmedAndUnresolvedAreBothShown(t *testing.T) {
 }
 
 // twoPassServer serves one fixture on the first pass and another on the second.
-// The pass advances on the active-tasks request because CheckIntegrity fetches
-// the active pool before the archived one; counting it anywhere else makes the
-// first pass read a fixture that has not been selected yet.
+//
+// The pass flips when an endpoint is requested a second time, rather than on a
+// nominated endpoint or a request count. Tying it to one endpoint is a trap: the
+// switch happens when that endpoint is reached, so every endpoint served earlier
+// in the same pass still answers from the previous fixture. The damage is then
+// category-dependent — a pair of fixtures differing only in `active` breaks
+// while pairs differing in `projects` or `archived` keep passing — which is a
+// partially green table hiding exactly one category, the same shape of bug this
+// file exists to catch. Counting requests instead would hardcode how many
+// requests a pass makes. Detecting the repeat depends on neither.
 func twoPassServer(t *testing.T, p1, p2 storeFixture) *httptest.Server {
 	t.Helper()
-	pass := 0
 	cur := p1
+	served := map[string]bool{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		enc := func(v []map[string]any) {
@@ -1422,16 +1429,19 @@ func twoPassServer(t *testing.T, p1, p2 storeFixture) *httptest.Server {
 			}
 			json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": v})
 		}
+
+		key := r.URL.Path + "?source=" + r.URL.Query().Get("source")
+		if served[key] {
+			// This endpoint was already answered, so a new pass has begun.
+			cur = p2
+			served = map[string]bool{}
+		}
+		served[key] = true
+
 		switch {
 		case r.URL.Path == "/tasks" && r.URL.Query().Get("source") == "archived":
 			enc(cur.archived)
 		case r.URL.Path == "/tasks":
-			pass++
-			if pass == 1 {
-				cur = p1
-			} else {
-				cur = p2
-			}
 			enc(cur.active)
 		case r.URL.Path == "/projects":
 			enc(cur.projects)

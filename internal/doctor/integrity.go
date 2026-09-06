@@ -52,7 +52,12 @@ func (r IntegrityReport) Confirmed() bool {
 // stand on their own: a race elsewhere in the store does not make them less
 // real, so they are reported even when part of the run was inconclusive.
 func (r IntegrityReport) HasConfirmedAnomalies() bool {
-	return len(r.Dangling) > 0 || len(r.Orphaned) > 0 || len(r.Duplicated) > 0
+	for _, group := range r.byCategory() {
+		if len(group.ids) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // idField pulls a string id out of a decoded JSON object.
@@ -289,6 +294,65 @@ func intersect(a, b []string) []string {
 	return out
 }
 
+// anomalyKey identifies one observation: a category plus the id it was seen for.
+// Reconciliation is per (category, id) because a task can legitimately appear in
+// more than one category at once.
+type anomalyKey struct {
+	category string
+	id       string
+}
+
+// anomalyGroup is one category's ids from a single report.
+type anomalyGroup struct {
+	category string
+	ids      []string
+}
+
+// byCategory returns the report's anomaly lists tagged with their category, in a
+// fixed order.
+//
+// categoryRefs is the single list and this derives from it, so a category added
+// there is filtered, reconciled, and counted by HasConfirmedAnomalies with no
+// other edit. The render paths are the exception: printIntegrity and
+// integrityJSON still name each category by hand, because each needs its own
+// prose and its own JSON key. TestIntegrityJSON_HasAKeyForEveryCategory catches
+// the JSON half of that; the prose half is on the author.
+func (r IntegrityReport) byCategory() []anomalyGroup {
+	// Derived from categoryRefs rather than listing the categories a second
+	// time. Two hand-maintained lists would drift, and the one that drifts
+	// silently is the filter: see categoryRefs.
+	refs := (&r).categoryRefs()
+	out := make([]anomalyGroup, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, anomalyGroup{ref.category, *ref.ids})
+	}
+	return out
+}
+
+// categoryRefs is byCategory for writing: it hands back pointers to the same
+// lists so the confirmation pass can filter each in place.
+//
+// The filter has to be driven by this rather than by three hand-written lines.
+// `confirmed` starts as a copy of the second pass, so a category nobody
+// remembered to intersect does not come out empty — it comes out holding the
+// second pass's findings *unfiltered*, is then treated as agreed, and swallows
+// the once-seen observation it should have contradicted. A missed category
+// would therefore report a single observation as confirmed and exit 3, which is
+// the false positive the whole confirmation pass exists to prevent.
+func (r *IntegrityReport) categoryRefs() []struct {
+	category string
+	ids      *[]string
+} {
+	return []struct {
+		category string
+		ids      *[]string
+	}{
+		{"dangling", &r.Dangling},
+		{"orphaned", &r.Orphaned},
+		{"duplicated", &r.Duplicated},
+	}
+}
+
 // CheckIntegrityConfirmed runs the check and, when it finds anomalies, repeats
 // it and reports only those seen in both passes.
 //
@@ -331,8 +395,8 @@ func CheckIntegrityConfirmed(ctx context.Context, client *bridge.Client) (Integr
 		// pools that nothing references lands in both — so concatenating raw
 		// would report one id twice and inflate the count.
 		seen := make(map[string]struct{})
-		for _, group := range [][]string{first.Dangling, first.Orphaned, first.Duplicated} {
-			for _, id := range group {
+		for _, group := range first.byCategory() {
+			for _, id := range group.ids {
 				if _, dup := seen[id]; dup {
 					continue
 				}
@@ -345,31 +409,48 @@ func CheckIntegrityConfirmed(ctx context.Context, client *bridge.Client) (Integr
 	}
 
 	confirmed := second
-	confirmed.Dangling = intersect(first.Dangling, second.Dangling)
-	confirmed.Orphaned = intersect(first.Orphaned, second.Orphaned)
-	confirmed.Duplicated = intersect(first.Duplicated, second.Duplicated)
+	firstByCategory := make(map[string][]string)
+	for _, group := range first.byCategory() {
+		firstByCategory[group.category] = group.ids
+	}
+	for _, ref := range confirmed.categoryRefs() {
+		*ref.ids = intersect(firstByCategory[ref.category], *ref.ids)
+	}
 
 	// Everything either pass flagged that the other did not was seen once. It is
 	// recorded rather than dropped — dropping it would let a store the second
 	// pass found broken be reported clean — but it does not gate the anomalies
 	// that did survive both passes.
-	agreed := make(map[string]struct{})
-	for _, group := range [][]string{confirmed.Dangling, confirmed.Orphaned, confirmed.Duplicated} {
-		for _, id := range group {
-			agreed[id] = struct{}{}
+	//
+	// Reconciled per category, not per id. The categories are not mutually
+	// exclusive: one task can be orphaned and duplicated at once. Keying on the
+	// id alone let a category confirmed for some id swallow a *different*
+	// category the passes disagreed about for that same id, so the second
+	// symptom vanished and Confirmed() claimed agreement that did not happen.
+	agreed := make(map[anomalyKey]struct{})
+	for _, group := range confirmed.byCategory() {
+		for _, id := range group.ids {
+			agreed[anomalyKey{group.category, id}] = struct{}{}
 		}
 	}
-	seenOnce := make(map[string]struct{})
+	seenOnce := make(map[anomalyKey]struct{})
 	for _, pass := range []IntegrityReport{first, second} {
-		for _, group := range [][]string{pass.Dangling, pass.Orphaned, pass.Duplicated} {
-			for _, id := range group {
-				if _, ok := agreed[id]; !ok {
-					seenOnce[id] = struct{}{}
+		for _, group := range pass.byCategory() {
+			for _, id := range group.ids {
+				key := anomalyKey{group.category, id}
+				if _, ok := agreed[key]; !ok {
+					seenOnce[key] = struct{}{}
 				}
 			}
 		}
 	}
-	for id := range seenOnce {
+	// Unresolved is a list of ids, so an id seen once under two categories is
+	// still reported once.
+	unresolvedIDs := make(map[string]struct{}, len(seenOnce))
+	for key := range seenOnce {
+		unresolvedIDs[key.id] = struct{}{}
+	}
+	for id := range unresolvedIDs {
 		confirmed.Unresolved = append(confirmed.Unresolved, id)
 	}
 	sort.Strings(confirmed.Unresolved)

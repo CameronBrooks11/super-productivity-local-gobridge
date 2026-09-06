@@ -2,7 +2,7 @@
 
 Single-binary MCP server and CLI that lets AI agents manage [Super Productivity](https://super-productivity.com/) tasks over the app's own Local REST API — no plugin, no Node runtime, and no way for it to delete a task.
 
-It is for a Super Productivity user who already drives an MCP-capable AI coding agent and wants it reading and updating their real task list, without installing a Node toolchain or granting an in-app plugin permission to execute Node.
+It is for a Super Productivity user who already drives an MCP-capable AI coding agent and wants it reading and updating their real task list, without installing a Node toolchain and without running an in-app plugin that holds permission to execute Node.
 
 **[Documentation Site](https://cameronbrooks11.github.io/super-productivity-local-gobridge/)**
 
@@ -11,7 +11,7 @@ It is for a Super Productivity user who already drives an MCP-capable AI coding 
 - **Single binary** — no runtime dependencies, small static binary
 - **MCP server** — JSON-RPC 2.0 over stdio (protocol version 2024-11-05)
 - **16 MCP tools** — read, create, update, complete and uncomplete, track time, archive and restore
-- **No task deletion** — no operation that deletes task data is exposed at any layer, by design
+- **No task deletion** — no operation that deletes a task is exposed at any layer, by design
 - **Store integrity checking** — `doctor --deep` cross-checks the task and archive pools against the project, tag and subtask indexes, and against each other, for dangling references, orphaned active tasks, and ids present in both pools
 - **Host auto-config** — configures Claude Code, Claude Desktop, VS Code Copilot, Codex CLI
 - **Strict validation** — integer fields reject exponents and overflow
@@ -125,9 +125,10 @@ Full docs: **https://cameronbrooks11.github.io/super-productivity-local-gobridge
 
 ## Status
 
-Pre-release. CI passes on Linux, macOS, and Windows. Live-validated end to end
-with VS Code Copilot on Linux x86_64; Claude Desktop, Codex, and macOS/Windows
-live validation are pending. See
+Pre-release. CI passes on Linux, macOS, and Windows. One live host session has
+been run — VS Code Copilot on Linux x86_64, against v0.1.1 on 2026-05-31 — and
+it has not been repeated since; Claude Desktop, Codex, and macOS/Windows live
+validation are pending. See
 [Validation Status](https://cameronbrooks11.github.io/super-productivity-local-gobridge/validation-status)
 for what each claim rests on.
 

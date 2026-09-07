@@ -18,6 +18,7 @@ const defaultTimeout = 10 * time.Second
 // Client communicates with the SP Local REST API.
 type Client struct {
 	baseURL    string
+	token      string
 	httpClient *http.Client
 }
 
@@ -46,6 +47,18 @@ func NewClientWithTimeout(baseURL string, timeout time.Duration) *Client {
 	}
 }
 
+// WithToken sets the access token sent on every request. Super Productivity
+// 18.19.0 and newer reject an unauthenticated request to any route except
+// GET /health; older versions have no token and ignore the header.
+//
+// An empty token sends no header at all, rather than an empty one, because
+// "Authorization: Bearer " is a malformed credential and SP would report it as
+// an invalid token instead of a missing one.
+func (c *Client) WithToken(token string) *Client {
+	c.token = token
+	return c
+}
+
 // request executes an HTTP request and translates the response.
 func (c *Client) request(ctx context.Context, method, path string, body any, params map[string]string) Result {
 	reqURL := c.baseURL + path
@@ -72,6 +85,9 @@ func (c *Client) request(ctx context.Context, method, path string, body any, par
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 
 	resp, err := c.httpClient.Do(req)

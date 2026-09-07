@@ -23,6 +23,28 @@ This checks:
 3. Enable the API
 4. Verify: `curl http://127.0.0.1:3876/health`
 
+### UNAUTHORIZED: connected, but every call fails
+
+**Cause**: Super Productivity 18.19.0 and newer require an access token on every
+route except `GET /health`. That exemption is why this looks like a working
+connection — `doctor` reports `Health check... OK` and everything after it fails.
+
+```
+Access token... none found
+
+Health check... OK
+Status check... FAILED: Authorization token required — send "Authorization: Bearer <token>".
+```
+
+**Fix**: enable the Local REST API in SP at least once so it writes its token
+file, which the bridge reads automatically. If the bridge still reports
+`none found`, its idea of where that file lives is wrong — check the path
+`doctor` prints, and set `SP_API_TOKEN` to the value from
+**Settings → Misc → Access Token** if the file is somewhere else.
+
+If `doctor` says a token was sent and SP rejected it, the token is stale.
+Re-copy it; regenerating it in SP invalidates the old one.
+
 ### Tools not appearing in MCP host
 
 **Cause**: Host config is missing or has wrong binary path.

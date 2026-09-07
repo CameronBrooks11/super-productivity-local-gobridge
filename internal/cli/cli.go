@@ -83,7 +83,8 @@ func Run(args []string) int {
 	if env := os.Getenv("SP_BASE_URL"); env != "" {
 		baseURL = env
 	}
-	client := bridge.NewClient(baseURL)
+	token, _ := bridge.ResolveToken()
+	client := bridge.NewClient(baseURL).WithToken(token)
 	service := bridge.NewService(client)
 	ctx := context.Background()
 

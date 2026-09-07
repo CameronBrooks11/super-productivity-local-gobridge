@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The bridge now sends `Authorization: Bearer <token>` on every request. Super
+  Productivity 18.19.0 (2026-08-07) began requiring an access token on every
+  route except `GET /health`, so on that version and newer every call the bridge
+  made returned 401 and the tool was entirely non-functional. `GET /health`
+  being the one exemption is what made it hard to see: `doctor` reported
+  `Health check... OK` while nothing else worked (#64)
+
+  The token is found without configuration in the usual case — `SP_API_TOKEN`
+  if set, otherwise SP's own token file (`local-rest-api-token` in SP's user
+  data directory). The file fallback is what lets an MCP host work unchanged: a
+  host launches the bridge as a subprocess, so the alternative was writing a
+  live credential into a host config file people paste into bug reports.
+
+  A file whose contents are not a token is ignored rather than sent, because
+  sending it produces "invalid token" and points at the wrong problem. An empty
+  token sends no header at all rather than an empty one, for the same reason.
+
+  `doctor` reports which source was used and explains a 401 in terms of what to
+  do about it. Neither prints the token.
+
+  Super Productivity before 18.19.0 has no token, and `Access token... none
+  found` remains the correct result there — nothing that worked before changes.
+
+
 ## [0.3.2] - 2026-09-07
 
 ### Fixed

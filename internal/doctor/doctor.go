@@ -112,7 +112,7 @@ func Run(args []string) int {
 	failures := 0
 
 	// Binary info
-	exe, _ := os.Executable()
+	exe, _ := osExecutable()
 	exe, _ = filepath.EvalSymlinks(exe)
 	fmt.Printf("Binary:   %s\n", exe)
 	fmt.Printf("Version:  %s\n", version.String())
@@ -352,6 +352,13 @@ var multicallAliases = []string{
 	"sp-local-bridge-print-config",
 	"sp-local-bridge-configure",
 }
+
+// osExecutable is a seam for tests. The MCP self-check spawns whatever this
+// returns and waits up to ten seconds for it to answer; under `go test` that is
+// the test binary, which answers nothing and — with HOME pointed at a scratch
+// directory — writes into it while doing so. Tests that exercise Run() point
+// this somewhere inert.
+var osExecutable = os.Executable
 
 // checkMCPSelf spawns the binary with "mcp", sends initialize + tools/list,
 // and verifies the expected tool count. Returns empty string on success.

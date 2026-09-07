@@ -78,6 +78,23 @@ what we send, or a failure a read-only run cannot provoke. Run it after touching
 release. There is deliberately no auto-update mode: regenerating from a live
 store would commit personal data.
 
+## Releases
+
+The GitHub release body is the tag's section of `CHANGELOG.md`, extracted by
+`scripts/release-notes.sh` and handed to GoReleaser with `--release-notes`.
+Write the notes in the CHANGELOG; nothing is pasted in afterwards.
+
+Before this, GoReleaser synthesised the body from commit subjects, and v0.3.0
+and v0.1.1 shipped with a list of SHAs headlined by a devDependency bump.
+v0.3.1 reads as prose only because it was edited by hand after CI published it,
+and that step was written down nowhere.
+
+The extraction fails the release job if the tag has no CHANGELOG section, or if
+the section is empty. That is deliberate: an empty notes file is accepted by
+GoReleaser and publishes a blank release body, which looks like a run that
+worked. So stamp the version in `CHANGELOG.md` and merge it *before* pushing
+the tag.
+
 ## Testing against a running Super Productivity
 
 The Local REST API talks to the user's real task database. There is no dry-run

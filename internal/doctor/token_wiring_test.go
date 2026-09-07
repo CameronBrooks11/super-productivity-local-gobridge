@@ -65,6 +65,15 @@ func spRequiringToken(t *testing.T) *httptest.Server {
 // exit code.
 func runDoctor(t *testing.T, args ...string) (string, int) {
 	t.Helper()
+
+	// Without this, Run() spawns the test binary as an MCP server and waits out
+	// a ten-second timeout for an answer it will never get — four times over,
+	// on three platforms. On macOS the spawned process also creates ~/Library
+	// under the scratch HOME, which then fails TempDir cleanup. Neither the MCP
+	// self-check nor the alias check is what these tests are about.
+	origExe := osExecutable
+	osExecutable = func() (string, error) { return "", nil }
+	t.Cleanup(func() { osExecutable = origExe })
 	orig := os.Stdout
 	r, w, err := os.Pipe()
 	if err != nil {

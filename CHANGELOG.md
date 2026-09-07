@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-07
+
 ### Fixed
 
 - `configure` and `print-config` discarded any unrecognised token beginning with
@@ -26,9 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   host, said nothing about the other, and exited 0. A second positional is now
   rejected with exit 2, naming the first argument that was not expected, as
   `doctor` does for its own unrecognised arguments. This also closes the one
-  hazard the `--` change below introduced: `configure <host> -- --dry-run` put `--dry-run` in
-  the positional list, where nothing looked at it, and wrote the config for
-  real (#60)
+  hazard the `--` change below introduced: `configure <host> -- --dry-run`
+  put `--dry-run` in the positional list, where nothing looked at it, and
+  wrote the config for real (#60)
 
   `configure <host> ""` — an unset shell variable, which expands to an empty
   argument rather than to nothing — is a second positional too, and now exits
@@ -294,7 +296,8 @@ The Go bridge skips 0.2.x because the Python bridge had already spent it:
 reserved on PyPI. The Go bridge's own 0.1.0 and 0.1.1 above do collide with
 Python tags of the same name, which is the confusion 0.3.0 stops repeating.
 
-[Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.1.1...v0.3.0
 [0.1.1]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.1.0...v0.1.1

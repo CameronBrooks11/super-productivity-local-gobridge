@@ -50,17 +50,29 @@ Linux x86_64, 2026-09-07, against the published release
 - All six archives downloaded and verified: `sha256sum -c checksums.txt`
   reports OK for each
 - `scripts/install.sh` downloaded, checksum-verified, extracted and installed
-  the binary; `doctor` confirms the four multicall alias symlinks resolve
+  the binary, and created the four multicall alias symlinks — confirmed with
+  `ls -la`, which shows four symlinks to `sp-local-bridge` carrying the install
+  timestamp. `doctor`'s alias check is not evidence for this: it stats four
+  filenames, so a regular file of the right name passes, and it warns without
+  failing the run
 - The installed binary is byte-identical to the separately downloaded archive
   contents (same SHA-256)
 - `--version` reports `0.3.2` with the release commit and build date
 - `doctor` passes every check: PATH visibility, host configs, health, status,
-  task list, MCP self-check (16 tools), multicall aliases
+  task list, MCP self-check (16 tools). It also reports the multicall aliases,
+  which is advisory — that line warns but never fails the run
 - `doctor --deep` reports store integrity OK against a live store of 198 active
   and 17 archived tasks, with all 198 referenced by the project and tag indexes
   or as a subtask of another task, which is the reference set the check builds:
   no dangling references, orphaned entities, duplicates or unresolved
   anomalies
+
+  The active count is down from 284 at v0.3.0. That is accounted for: the owner
+  moved a block of work tasks to a separate tracker between the two runs. It is
+  recorded here because `doctor --deep` reporting OK does not by itself
+  distinguish a store that shrank deliberately from one that lost data — the
+  check verifies that the indexes and the entity set agree with each other,
+  which they would either way
 - `configure --dry-run` generates config for all four hosts and writes nothing:
   `claude-code`, `claude-desktop`, `vscode-copilot`, `codex`
 - Raw MCP stdio: `initialize` returns protocol `2024-11-05` and
@@ -68,14 +80,19 @@ Linux x86_64, 2026-09-07, against the published release
   returns all 16 tools, none of them a delete, with `limit` and `offset`
   present on `list_tasks`, `list_projects` and `list_tags`
 
-### Argument handling, the subject of this release
+### Argument handling: the six cases exercised
 
 Run against the installed release binary with `HOME` pointed at a throwaway
 directory, so a write would have been visible and nothing real was touched. The
 file count after each run is what distinguishes a rejection from a silent write.
 
+These six are a sample, not the whole change. `CHANGELOG.md` names three
+further inputs that now exit 2 — a bare `-`, the `--flag=value` form, and an
+empty-string second positional — and `print-config` received the identical
+fix. None of those were re-run for this entry.
+
 | Command | Exit | Files written |
-| --------- | ------ | --------------- |
+|---------|------|---------------|
 | `configure --dry-runn claude-code` | 2 | 0 |
 | `configure claude-code claude-desktop` | 2 | 0 |
 | `configure -- claude-code --dry-run` | 2 | 0 |

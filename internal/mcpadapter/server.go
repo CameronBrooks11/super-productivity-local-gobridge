@@ -72,7 +72,8 @@ type Server struct {
 
 // Serve creates and runs an MCP server on stdin/stdout.
 func Serve(baseURL string) error {
-	client := bridge.NewClient(baseURL)
+	token, _ := bridge.ResolveToken()
+	client := bridge.NewClient(baseURL).WithToken(token)
 	service := bridge.NewService(client)
 	server := NewServer(service)
 	return server.Run()

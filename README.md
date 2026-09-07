@@ -21,6 +21,12 @@ It is for a Super Productivity user who already drives an MCP-capable AI coding 
 - Super Productivity desktop app with Local REST API enabled (`http://127.0.0.1:3876`)
 - Enable: Settings → Sync & Export → Local REST API
 
+On **Super Productivity 18.19.0 and newer** the API also requires an access
+token. The bridge reads it from SP's own token file automatically — including a
+Flatpak install — so a standard desktop setup needs no configuration. A Snap
+install, a custom data directory or a container needs `SP_API_TOKEN`; see
+[Getting Started](docs/getting-started.md).
+
 ## Get Started
 
 Clone the repository:

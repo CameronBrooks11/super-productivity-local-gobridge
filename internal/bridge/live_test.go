@@ -59,9 +59,19 @@ func liveClient(t *testing.T) *Client {
 	if env := os.Getenv("SP_BASE_URL"); env != "" {
 		base = env
 	}
-	c := NewClient(base)
+	token, _ := ResolveToken()
+	c := NewClient(base).WithToken(token)
 	if h := c.Health(context.Background()); !h.OK {
 		t.Skipf("Super Productivity is not reachable at %s (%s); start it with the Local REST API enabled", base, h.Error.Message)
+	}
+	// Health is the one route SP leaves unauthenticated, so it cannot answer
+	// "can this suite read anything". Without this, an unauthenticated run
+	// against SP 18.19.0+ sails past the reachability check and then fails
+	// every fixture assertion with a 401, reporting an auth problem as a
+	// fixture problem.
+	if r := c.Status(context.Background()); !r.OK && r.Error.Code == ErrUnauthorized {
+		t.Skipf("Super Productivity at %s requires an access token and none was usable (%s); set %s",
+			base, r.Error.Message, TokenEnvVar)
 	}
 	return c
 }
@@ -448,12 +458,20 @@ func TestLive_StoreHasSomethingToCheck(t *testing.T) {
 	if env := os.Getenv("SP_BASE_URL"); env != "" {
 		base = env
 	}
-	client := NewClient(base)
+	token, _ := ResolveToken()
+	client := NewClient(base).WithToken(token)
 	ctx := context.Background()
 
 	if h := client.Health(ctx); !h.OK {
 		t.Fatalf("Super Productivity is not reachable at %s (%s), so this run verified nothing",
 			base, h.Error.Message)
+	}
+	// Health is unauthenticated, so it passes on an SP this suite cannot
+	// actually read. This test exists to fail loudly rather than skip, so a
+	// missing token is a failure here — but it must name the real cause.
+	if r := client.Status(ctx); !r.OK && r.Error.Code == ErrUnauthorized {
+		t.Fatalf("Super Productivity at %s requires an access token and none was usable (%s); set %s",
+			base, r.Error.Message, TokenEnvVar)
 	}
 	// Report a failed call as a failed call. Reading Data through a discarded
 	// error turned "SP returned an error" into "your store is empty", which

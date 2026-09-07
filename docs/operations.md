@@ -95,6 +95,7 @@ The `taskCount` in `get_status` reflects the active pool including done tasks (n
 | Code | Meaning |
 |------|---------|
 | `SP_UNAVAILABLE` | Cannot connect to SP Local REST API |
+| `UNAUTHORIZED` | SP requires an access token, and none was sent or it was rejected |
 | `TIMEOUT` | Request timed out |
 | `UNKNOWN_OPERATION` | Operation not recognized |
 | `UNSUPPORTED_OPERATION` | Operation exists but is not implemented |

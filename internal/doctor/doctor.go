@@ -78,8 +78,12 @@ func Run(args []string) int {
 		baseURL = env
 	}
 
+	// Resolved once and shared by every client below, so the human report and
+	// the --json path cannot disagree about which credential was tried.
+	spToken, tokenSource := bridge.ResolveToken()
+
 	if asJSON {
-		client := bridge.NewClientWithTimeout(baseURL, deepTimeout)
+		client := bridge.NewClientWithTimeout(baseURL, deepTimeout).WithToken(spToken)
 		ctx, cancel := context.WithTimeout(context.Background(), deepTotalTimeout)
 		defer cancel()
 		report, err := CheckIntegrityConfirmed(ctx, client)
@@ -146,9 +150,21 @@ func Run(args []string) int {
 		fmt.Println("none configured")
 	}
 
+	fmt.Print("Access token... ")
+	switch tokenSource {
+	case bridge.TokenSourceEnv:
+		fmt.Printf("set (%s)\n", bridge.TokenEnvVar)
+	case bridge.TokenSourceFile:
+		fmt.Printf("read from %s\n", bridge.TokenPath())
+	case bridge.TokenSourceEnvInvalid:
+		fmt.Printf("%s is set but is not a usable token; ignoring it\n", bridge.TokenEnvVar)
+	default:
+		fmt.Println("none found")
+	}
+
 	fmt.Println()
 
-	client := bridge.NewClient(baseURL)
+	client := bridge.NewClient(baseURL).WithToken(spToken)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -172,6 +188,9 @@ func Run(args []string) int {
 		fmt.Printf("  %s\n", data)
 	} else {
 		fmt.Printf("FAILED: %s\n", status.Error.Message)
+		if status.Error.Code == bridge.ErrUnauthorized {
+			explainUnauthorized(tokenSource)
+		}
 		failures++
 	}
 
@@ -201,7 +220,7 @@ func Run(args []string) int {
 		// The archived pull with includeDone is the largest response the bridge
 		// ever requests, so it gets its own client: http.Client.Timeout caps
 		// each request independently of the context deadline.
-		deepClient := bridge.NewClientWithTimeout(baseURL, deepTimeout)
+		deepClient := bridge.NewClientWithTimeout(baseURL, deepTimeout).WithToken(spToken)
 		deepCtx, deepCancel := context.WithTimeout(context.Background(), deepTotalTimeout)
 		defer deepCancel()
 		report, err := CheckIntegrityConfirmed(deepCtx, deepClient)
@@ -252,6 +271,24 @@ func Run(args []string) int {
 		fmt.Println("All checks passed.")
 	}
 	return code
+}
+
+// explainUnauthorized turns a 401 into the specific thing to do about it.
+// Health is the only unauthenticated route, so this is the failure a user sees
+// as "connected, but nothing works" — worth more than the status line alone.
+func explainUnauthorized(source bridge.TokenSource) {
+	switch source {
+	case bridge.TokenSourceEnvInvalid:
+		fmt.Printf("  → %s is set to something that cannot be sent as a token, so none was.\n", bridge.TokenEnvVar)
+		fmt.Println("    Re-copy it from Settings → Misc → Access Token, or unset it to use SP's own token file.")
+	case bridge.TokenSourceNone:
+		fmt.Println("  → Super Productivity 18.19.0 and newer require an access token, and none was found.")
+		fmt.Printf("    Copy it from Settings → Misc → Access Token and set %s,\n", bridge.TokenEnvVar)
+		fmt.Printf("    or start Super Productivity once so it writes %s\n", bridge.TokenPath())
+	default:
+		fmt.Println("  → A token was sent and Super Productivity rejected it.")
+		fmt.Println("    It may be stale: re-copy it from Settings → Misc → Access Token.")
+	}
 }
 
 func usage(w io.Writer) {

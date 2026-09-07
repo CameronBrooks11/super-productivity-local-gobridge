@@ -43,11 +43,20 @@ func NewClientWithTimeout(baseURL string, timeout time.Duration) *Client {
 		baseURL: strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{
 			Timeout: timeout,
+			// SP's Local REST API issues no redirects, so following one can
+			// only send the access token somewhere it was not meant to go.
+			// Go already strips the header across hosts; this also stops it
+			// following a same-host redirect to another port.
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
 		},
 	}
 }
 
-// WithToken sets the access token sent on every request. Super Productivity
+// WithToken sets the access token sent on every request. It mutates the
+// receiver and returns it for chaining, so a *Client shared between callers
+// shares its token. Super Productivity
 // 18.19.0 and newer reject an unauthenticated request to any route except
 // GET /health; older versions have no token and ignore the header.
 //

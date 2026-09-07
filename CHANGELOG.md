@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Fixed
 
 - The bridge now sends `Authorization: Bearer <token>` on every request. Super
   Productivity 18.19.0 (2026-08-07) began requiring an access token on every
@@ -25,9 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A file whose contents are not a token is ignored rather than sent, because
   sending it produces "invalid token" and points at the wrong problem. An empty
   token sends no header at all rather than an empty one, for the same reason.
+  `SP_API_TOKEN` set to something that cannot go in an HTTP header is rejected
+  for a third version of that reason: `net/http` refuses to send it, which
+  would fail even `GET /health` and make a running Super Productivity look
+  unreachable.
+
+  On Linux a Flatpak install is searched too. Flatpak redirects
+  `XDG_CONFIG_HOME` inside its sandbox and the bridge runs outside it, so a
+  Flathub install would otherwise never be found. Snap is not searched: its
+  path comes from `SNAP_USER_COMMON`, which does not exist outside the snap,
+  so it needs `SP_API_TOKEN`.
 
   `doctor` reports which source was used and explains a 401 in terms of what to
-  do about it. Neither prints the token.
+  do about it, including the case where `SP_API_TOKEN` is set to something that
+  cannot be sent. Neither prints the token. This is the human report only;
+  `doctor --json` emits the same JSON it always did.
 
   Super Productivity before 18.19.0 has no token, and `Access token... none
   found` remains the correct result there — nothing that worked before changes.

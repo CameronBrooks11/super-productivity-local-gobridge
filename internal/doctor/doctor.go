@@ -156,6 +156,8 @@ func Run(args []string) int {
 		fmt.Printf("set (%s)\n", bridge.TokenEnvVar)
 	case bridge.TokenSourceFile:
 		fmt.Printf("read from %s\n", bridge.TokenPath())
+	case bridge.TokenSourceEnvInvalid:
+		fmt.Printf("%s is set but is not a usable token; ignoring it\n", bridge.TokenEnvVar)
 	default:
 		fmt.Println("none found")
 	}
@@ -276,6 +278,9 @@ func Run(args []string) int {
 // as "connected, but nothing works" — worth more than the status line alone.
 func explainUnauthorized(source bridge.TokenSource) {
 	switch source {
+	case bridge.TokenSourceEnvInvalid:
+		fmt.Printf("  → %s is set to something that cannot be sent as a token, so none was.\n", bridge.TokenEnvVar)
+		fmt.Println("    Re-copy it from Settings → Misc → Access Token, or unset it to use SP's own token file.")
 	case bridge.TokenSourceNone:
 		fmt.Println("  → Super Productivity 18.19.0 and newer require an access token, and none was found.")
 		fmt.Printf("    Copy it from Settings → Misc → Access Token and set %s,\n", bridge.TokenEnvVar)

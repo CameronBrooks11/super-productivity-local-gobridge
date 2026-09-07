@@ -22,6 +22,7 @@ The bridge finds the token in one of two ways:
    | Platform | Path |
    |---|---|
    | Linux | `~/.config/superProductivity/local-rest-api-token` |
+   | Linux (Flatpak) | `~/.var/app/com.super_productivity.SuperProductivity/config/superProductivity/local-rest-api-token` |
    | macOS | `~/Library/Application Support/superProductivity/local-rest-api-token` |
    | Windows | `%APPDATA%\superProductivity\local-rest-api-token` |
 
@@ -29,9 +30,17 @@ The file is the reason most setups need no configuration at all — including MC
 hosts, which launch the bridge as a subprocess and would otherwise need the
 token written into a host config file.
 
-Reach for `SP_API_TOKEN` when the file is not where the bridge looks: a portable
-install, a non-default `--user-data-dir`, or a container. The token itself is
-shown at **Settings → Misc → Access Token**.
+Both Linux paths are searched, the non-Flatpak one first.
+
+Reach for `SP_API_TOKEN` when the file is not where the bridge looks:
+
+- a **Snap** install, which keeps its data under `$SNAP_USER_COMMON` — a path
+  that exists only inside the snap's own environment, so the bridge cannot
+  resolve it from outside
+- a custom `--user-data-dir`, a portable install, or a container
+- Super Productivity running as a different user
+
+The token itself is shown at **Settings → Misc → Access Token**.
 
 `sp-local-bridge doctor` reports which source was used, and never prints the
 token:

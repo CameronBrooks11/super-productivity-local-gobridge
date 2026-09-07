@@ -9,7 +9,7 @@ the version that was validated, not necessarily the latest release.
 
 | Platform | CI Tests | Artifact Validation |
 |----------|----------|---------------------|
-| Linux x86_64 | `ubuntu-latest` | v0.3.0 validated (2026-09-05) |
+| Linux x86_64 | `ubuntu-latest` | v0.3.2 validated (2026-09-07) |
 | Linux arm64 | Not run | Archive checksum verified only |
 | macOS arm64 | `macos-latest` | Archive checksum verified only |
 | macOS x86_64 | Not run | Archive checksum verified only |
@@ -23,7 +23,7 @@ which architecture each currently maps to.
 
 "Archive checksum verified only" means the published archive was downloaded and
 matched `checksums.txt`, but the binary inside it has not been run on that
-platform. All six v0.3.0 archives were verified this way on 2026-09-05; Linux
+platform. All six v0.3.2 archives were verified this way on 2026-09-07; Linux
 x86_64 additionally got the full validation below.
 
 ## Host Application Validation
@@ -38,40 +38,76 @@ x86_64 additionally got the full validation below.
 "Live Host Session" means a human has connected the Go bridge to the specific
 host application and confirmed MCP tool invocations work end-to-end through the
 host's MCP client. This is distinct from raw stdio protocol validation below.
-No live host session has been run against v0.3.0.
+No live host session has been run against v0.3.2.
 
-## Release Artifact Validation (v0.3.0)
+## Release Artifact Validation (v0.3.2)
 
-Linux x86_64, 2026-09-05, against the published release
-(`sp-local-bridge 0.3.0`, commit `1492aa5`, built `2026-09-05T21:08:25Z`).
+Linux x86_64, 2026-09-07, against the published release
+(`sp-local-bridge 0.3.2`, commit `e35b7e3`, built `2026-09-07T14:42:22Z`).
 
 - Release job completed successfully; all six platform archives and
   `checksums.txt` published
 - All six archives downloaded and verified: `sha256sum -c checksums.txt`
   reports OK for each
 - `scripts/install.sh` downloaded, checksum-verified, extracted and installed
-  the binary, and created the four multicall alias symlinks
+  the binary, and created the four multicall alias symlinks — confirmed with
+  `ls -la`, which shows four symlinks to `sp-local-bridge` carrying the install
+  timestamp. `doctor`'s alias check is not evidence for this: it stats four
+  filenames, so a regular file of the right name passes, and it warns without
+  failing the run
 - The installed binary is byte-identical to the separately downloaded archive
   contents (same SHA-256)
-- `--version` reports `0.3.0` with the release commit and build date
+- `--version` reports `0.3.2` with the release commit and build date
 - `doctor` passes every check: PATH visibility, host configs, health, status,
-  task list, MCP self-check (16 tools), multicall aliases
-- `doctor --deep` reports store integrity OK against a live store of 284 active
-  and 17 archived tasks, with all 284 referenced by the project and tag indexes
+  task list, MCP self-check (16 tools). It also reports the multicall aliases,
+  which is advisory — that line warns but never fails the run
+- `doctor --deep` reports store integrity OK against a live store of 198 active
+  and 17 archived tasks, with all 198 referenced by the project and tag indexes
   or as a subtask of another task, which is the reference set the check builds:
   no dangling references, orphaned entities, duplicates or unresolved
   anomalies
-- `configure --dry-run` generates config for all four hosts: `claude-code`,
-  `claude-desktop`, `vscode-copilot`, `codex`
-- Raw MCP stdio: `initialize` returns protocol `2024-11-05` and
-  `serverInfo {"name":"sp-local-bridge","version":"0.3.0"}`; `tools/list`
-  returns all 16 tools, with `limit` and `offset` present on `list_tasks`,
-  `list_projects` and `list_tags`
 
-## Live Client Validation (v0.3.0)
+  The active count is down from 284 at v0.3.0. That is accounted for: the owner
+  moved a block of work tasks to a separate tracker between the two runs. It is
+  recorded here because `doctor --deep` reporting OK does not by itself
+  distinguish a store that shrank deliberately from one that lost data — the
+  check verifies that the indexes and the entity set agree with each other,
+  which they would either way
+- `configure --dry-run` generates config for all four hosts and writes nothing:
+  `claude-code`, `claude-desktop`, `vscode-copilot`, `codex`
+- Raw MCP stdio: `initialize` returns protocol `2024-11-05` and
+  `serverInfo {"name":"sp-local-bridge","version":"0.3.2"}`; `tools/list`
+  returns all 16 tools, none of them a delete, with `limit` and `offset`
+  present on `list_tasks`, `list_projects` and `list_tags`
+
+### Argument handling: the six cases exercised
+
+Run against the installed release binary with `HOME` pointed at a throwaway
+directory, so a write would have been visible and nothing real was touched. The
+file count after each run is what distinguishes a rejection from a silent write.
+
+These six are a sample, not the whole change. `CHANGELOG.md` names three
+further inputs that now exit 2 — a bare `-`, the `--flag=value` form, and an
+empty-string second positional — and `print-config` received the identical
+fix. None of those were re-run for this entry.
+
+| Command | Exit | Files written |
+|---------|------|---------------|
+| `configure --dry-runn claude-code` | 2 | 0 |
+| `configure claude-code claude-desktop` | 2 | 0 |
+| `configure -- claude-code --dry-run` | 2 | 0 |
+| `configure --dry-run claude-code` | 0 | 0 |
+| `configure -- claude-code` | 0 | 1 |
+| `configure claude-code` | 0 | 1 |
+
+The first three are the fixes (#53, #60, and the hazard the `--` change
+introduced). The last three are the controls: a real `--dry-run` still previews
+without writing, and both the bare and `--`-prefixed forms still configure.
+
+## Live Client Validation (v0.3.2)
 
 `make test-live` against a running Super Productivity on Linux x86_64,
-2026-09-05. Read-only: the suite issues GET requests only, including a lookup
+2026-09-07. Read-only: the suite issues GET requests only, including a lookup
 of a non-existent task id and of a non-existent route. It does not create,
 modify, archive or delete anything.
 
@@ -99,7 +135,7 @@ modify, archive or delete anything.
 ## VS Code Copilot Host Validation (v0.1.1)
 
 Historical. Live host session validated on Linux x86_64, 2026-05-31, against
-v0.1.1. Not repeated for v0.3.0.
+v0.1.1. Not repeated for v0.3.2.
 
 - Binary: v0.1.1 installed via `scripts/install.sh` to `~/.local/bin`
 - Config: `sp-local-bridge configure vscode-copilot` wrote to `~/.config/Code/User/mcp.json`

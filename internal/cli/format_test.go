@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/CameronBrooks11/super-productivity-local-gobridge/internal/bridge"
 )
@@ -302,8 +303,11 @@ func TestRenderIDs_MissingIDIsAnError(t *testing.T) {
 	if !strings.Contains(errOut, "item 1 has no id") {
 		t.Fatalf("expected the offending index named, got %q", errOut)
 	}
-	if strings.Contains(out, "task-1\ntask-1") {
-		t.Fatalf("unexpected duplicate output: %q", out)
+	// The ids before the bad one must not reach stdout: a pipeline that got
+	// them would act on a short list, which is the thing the error exists to
+	// prevent.
+	if out != "" {
+		t.Fatalf("expected nothing written on failure, got %q", out)
 	}
 }
 
@@ -489,5 +493,150 @@ func TestRun_RejectsIDsFormatOnIdlessCommands(t *testing.T) {
 		if code := Run(args); code != 2 {
 			t.Errorf("%v: expected exit 2, got %d", args, code)
 		}
+	}
+}
+
+// --- guards the first mutation sweep did not cover ---
+
+func TestStringCell_EmptyAndMissingReadAsAbsent(t *testing.T) {
+	items := []any{map[string]any{"id": "task-1", "title": "", "isDone": false}}
+	out, _, _ := render(t, bridge.OpTaskList, items, formatTable)
+	want := "" +
+		"ID      DONE  TITLE  DUE  SPENT/EST\n" +
+		"task-1  no    -      -    -/-\n"
+	if out != want {
+		t.Fatalf("an empty string and a missing field should both read as absent\n got:\n%s\nwant:\n%s", out, want)
+	}
+}
+
+func TestBoolCell_MissingReadsAsAbsent(t *testing.T) {
+	items := []any{map[string]any{"id": "task-1", "title": "x"}}
+	out, _, _ := render(t, bridge.OpTaskList, items, formatTable)
+	if !strings.Contains(out, "task-1  -     x") {
+		t.Fatalf("a missing isDone should read as absent, got %q", out)
+	}
+}
+
+// `tasks stop-current` answers 204 and `tasks current` answers null when
+// nothing is tracked. Printing nothing would make either indistinguishable from
+// a command that did nothing.
+func TestRenderTable_NilResultIsVisible(t *testing.T) {
+	out, _, code := render(t, bridge.OpTaskStopCurrent, nil, formatTable)
+	if out != "-\n" {
+		t.Fatalf("expected an absent marker, got %q", out)
+	}
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+}
+
+// created is 1780000000000; %g would print 1.78e+12, which is not an id, a
+// timestamp anyone can read, or something that round-trips.
+func TestFieldValue_LargeIntegersPrintInFull(t *testing.T) {
+	out, _, _ := render(t, bridge.OpTaskGet,
+		map[string]any{"id": "task-1", "created": float64(1780000000000)}, formatTable)
+	if !strings.Contains(out, "created  1780000000000") {
+		t.Fatalf("expected the full integer, got %q", out)
+	}
+}
+
+// Byte-counted widths push a row right by one column per extra UTF-8 byte. This
+// is the behaviour writeAligned's comment claims, so it needs a guard.
+func TestWriteAligned_WidthIsCountedInRunesNotBytes(t *testing.T) {
+	items := []any{
+		map[string]any{"id": "task-1", "title": "café", "isDone": false},
+		map[string]any{"id": "task-2", "title": "abcde", "isDone": false},
+	}
+	out, _, _ := render(t, bridge.OpTaskList, items, formatTable)
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	// "café" is 4 runes and 5 bytes. The comparison has to be in runes too:
+	// strings.Index returns a byte offset, which differs between these rows
+	// even when they line up on screen.
+	col := func(line string) int {
+		i := strings.Index(line, "-    -/-")
+		if i < 0 {
+			return -1
+		}
+		return utf8.RuneCountInString(line[:i])
+	}
+	if col(lines[1]) == -1 || col(lines[1]) != col(lines[2]) {
+		t.Fatalf("rows misaligned by byte-counted width:\n%s", out)
+	}
+}
+
+// --- edge inputs found in review ---
+
+// notes are routinely multi-line; an unescaped break prints as a line with no
+// key, which reads as a field whose name is empty.
+func TestRenderFields_NewlineInAValueStaysOnOneLine(t *testing.T) {
+	entity := map[string]any{"id": "task-1", "notes": "line one\nline two"}
+	out, _, _ := render(t, bridge.OpTaskGet, entity, formatTable)
+	if strings.Count(out, "\n") != 2 {
+		t.Fatalf("expected exactly two lines, got %q", out)
+	}
+	if !strings.Contains(out, `"line one\nline two"`) {
+		t.Fatalf("expected the break escaped, got %q", out)
+	}
+}
+
+func TestRenderTable_NewlineInATitleStaysOnOneLine(t *testing.T) {
+	items := []any{map[string]any{"id": "task-1", "title": "one\ntwo", "isDone": false}}
+	out, _, _ := render(t, bridge.OpTaskList, items, formatTable)
+	if strings.Count(out, "\n") != 2 {
+		t.Fatalf("expected a heading and one row, got %q", out)
+	}
+}
+
+// A stray non-entity carries its JSON in a single cell. Letting that cell into
+// the width measurement stretched the ID column for every row.
+func TestRenderTable_NonEntityItemDoesNotWidenColumns(t *testing.T) {
+	items := []any{
+		map[string]any{"id": "task-1", "title": "Real task", "isDone": false},
+		"an unexpectedly long string item from SP",
+	}
+	out, _, _ := render(t, bridge.OpTaskList, items, formatTable)
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if !strings.HasPrefix(lines[0], "ID      DONE") {
+		t.Fatalf("the stray item widened the ID column: %q", lines[0])
+	}
+	if !strings.Contains(out, "unexpectedly long string item") {
+		t.Fatalf("the stray item should still be visible, got %q", out)
+	}
+}
+
+// --format is extracted before the per-command parsers run, so it has to skip
+// over a flag's value instead of reading it. Searching for the literal string
+// "--format" worked before this flag existed and has to keep working.
+func TestExtractFormat_DoesNotClaimAnotherFlagsValue(t *testing.T) {
+	format, rest, err := extractFormat([]string{"list", "--query", "--format"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if format != formatJSON {
+		t.Fatalf("the value of --query is not a format, got %q", format)
+	}
+	if strings.Join(rest, " ") != "list --query --format" {
+		t.Fatalf("expected the query value preserved, got %v", rest)
+	}
+
+	// ...and a real --format after a value flag is still found.
+	format, rest, err = extractFormat([]string{"list", "--query", "report", "--format", "ids"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if format != formatIDs {
+		t.Fatalf("expected ids, got %q", format)
+	}
+	if strings.Join(rest, " ") != "list --query report" {
+		t.Fatalf("expected the flag stripped, got %v", rest)
+	}
+}
+
+func TestRun_QueryValueThatLooksLikeTheFormatFlag(t *testing.T) {
+	t.Setenv("SP_BASE_URL", "http://127.0.0.1:1")
+	// Exit 1 means it parsed and went out to a dead address; before the fix
+	// this was a usage error.
+	if code := Run([]string{"tasks", "list", "--query", "--format"}); code != 1 {
+		t.Errorf("expected exit 1 (parsed, SP down), got %d", code)
 	}
 }

@@ -495,17 +495,22 @@ descriptions carry conversion examples.
 
 ## Output formats
 
-CLI commands emit JSON by default, and that has not changed: the JSON output is
-an interface, so anything already parsing it keeps working. `--format` selects a
-different rendering and is accepted after any command.
+The data commands — `health`, `status`, `tasks`, `projects` and `tags` — emit
+JSON by default, and that has not changed: the JSON output is an interface, so
+anything already parsing it keeps working. `--format` selects a different
+rendering and is accepted after any of those five.
+
+`doctor`, `print-config` and `configure` do not take it. `doctor` is a
+diagnostic rather than an entity view and has its own `--json`; the other two
+print a host config file, which has no table form.
 
 ```console
-$ sp-local-bridge tasks list --format table
+$ sp-local-bridge tasks list --include-done --format table
 ID           DONE  TITLE                      DUE         SPENT/EST
 task-abc123  no    Review budget spreadsheet  2026-06-01  15m/30m
 task-def456  yes   Send weekly report         -           -/-
 
-$ sp-local-bridge tasks list --format ids
+$ sp-local-bridge tasks list --include-done --format ids
 task-abc123
 task-def456
 ```

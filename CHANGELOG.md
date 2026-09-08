@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `--format table` and `--format ids` on every CLI command, alongside the
+- `--format table` and `--format ids` on the CLI's data commands —
+  `health`, `status`, `tasks`, `projects` and `tags` — alongside the
   existing JSON output (#11). Listing 16 tasks produced about 250 lines of JSON
   and no other way to read them; `--format table` puts each on one line, and
   `--format ids` prints ids alone so a list can be piped into another command.

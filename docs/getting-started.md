@@ -103,7 +103,7 @@ sp-local-bridge tasks stop-current        # Stop tracking
 sp-local-bridge tasks complete <id>       # Mark done
 ```
 
-Every command prints JSON by default. Add `--format table` for a readable
+The data commands print JSON by default. Add `--format table` for a readable
 summary, or `--format ids` to feed ids into another command:
 
 ```bash

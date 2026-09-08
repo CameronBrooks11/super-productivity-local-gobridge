@@ -50,6 +50,16 @@ READY_TIMEOUT="${SP_CI_READY_TIMEOUT:-120}"
 
 SP_PID=""
 cleanup() {
+    # Kill by the profile path, not just by PID. xvfb-run execs a shell that
+    # starts Xvfb and electron, and electron forks its own children, so killing
+    # the launcher leaves every one of them running and holding port 3876 —
+    # which then makes the *next* run refuse to start. Harmless on a runner that
+    # is destroyed afterwards; not harmless by hand, where five orphaned
+    # instances accumulated the first time this was used.
+    #
+    # The profile path is created by this run and is in the argv of exactly its
+    # own processes, so this cannot match a developer's own Super Productivity.
+    pkill -f -- "--user-data-dir=$PROFILE" 2>/dev/null
     if [ -n "$SP_PID" ]; then
         kill "$SP_PID" 2>/dev/null
         wait "$SP_PID" 2>/dev/null

@@ -9,7 +9,7 @@ the version that was validated, not necessarily the latest release.
 
 | Platform | CI Tests | Artifact Validation |
 |----------|----------|---------------------|
-| Linux x86_64 | `ubuntu-latest` | v0.3.2 validated (2026-09-07) |
+| Linux x86_64 | `ubuntu-latest` | v0.3.3 validated (2026-09-07) |
 | Linux arm64 | Not run | Archive checksum verified only |
 | macOS arm64 | `macos-latest` | Archive checksum verified only |
 | macOS x86_64 | Not run | Archive checksum verified only |
@@ -23,7 +23,7 @@ which architecture each currently maps to.
 
 "Archive checksum verified only" means the published archive was downloaded and
 matched `checksums.txt`, but the binary inside it has not been run on that
-platform. All six v0.3.2 archives were verified this way on 2026-09-07; Linux
+platform. All six v0.3.3 archives were verified this way on 2026-09-07; Linux
 x86_64 additionally got the full validation below.
 
 ## Host Application Validation
@@ -38,12 +38,14 @@ x86_64 additionally got the full validation below.
 "Live Host Session" means a human has connected the Go bridge to the specific
 host application and confirmed MCP tool invocations work end-to-end through the
 host's MCP client. This is distinct from raw stdio protocol validation below.
-No live host session has been run against v0.3.2.
+No live host session has been run against v0.3.3.
 
-## Release Artifact Validation (v0.3.2)
+## Release Artifact Validation (v0.3.3)
 
 Linux x86_64, 2026-09-07, against the published release
-(`sp-local-bridge 0.3.2`, commit `e35b7e3`, built `2026-09-07T14:42:22Z`).
+(`sp-local-bridge 0.3.3`, commit `d5697cd`, built `2026-09-07T22:42:04Z`).
+The binary was removed before installing, so this exercised a real install
+rather than an overwrite.
 
 - Release job completed successfully; all six platform archives and
   `checksums.txt` published
@@ -57,7 +59,7 @@ Linux x86_64, 2026-09-07, against the published release
   failing the run
 - The installed binary is byte-identical to the separately downloaded archive
   contents (same SHA-256)
-- `--version` reports `0.3.2` with the release commit and build date
+- `--version` reports `0.3.3` with the release commit and build date
 - `doctor` passes every check: PATH visibility, host configs, health, status,
   task list, MCP self-check (16 tools). It also reports the multicall aliases,
   which is advisory — that line warns but never fails the run
@@ -76,11 +78,11 @@ Linux x86_64, 2026-09-07, against the published release
 - `configure --dry-run` generates config for all four hosts and writes nothing:
   `claude-code`, `claude-desktop`, `vscode-copilot`, `codex`
 - Raw MCP stdio: `initialize` returns protocol `2024-11-05` and
-  `serverInfo {"name":"sp-local-bridge","version":"0.3.2"}`; `tools/list`
+  `serverInfo {"name":"sp-local-bridge","version":"0.3.3"}`; `tools/list`
   returns all 16 tools, none of them a delete, with `limit` and `offset`
   present on `list_tasks`, `list_projects` and `list_tags`
 
-### Argument handling: the six cases exercised
+### Argument handling: the six cases exercised (v0.3.2)
 
 Run against the installed release binary with `HOME` pointed at a throwaway
 directory, so a write would have been visible and nothing real was touched. The
@@ -90,6 +92,35 @@ These six are a sample, not the whole change. `CHANGELOG.md` names three
 further inputs that now exit 2 — a bare `-`, the `--flag=value` form, and an
 empty-string second positional — and `print-config` received the identical
 fix. None of those were re-run for this entry.
+
+These rows were measured against v0.3.2 and have not been re-run since. They
+are kept because the behaviour is unchanged in v0.3.3, and dropping them would
+lose the only written record of it.
+
+### Access token handling (v0.3.3)
+
+The subject of this release. Run against the installed release binary with
+`SP_BASE_URL` pointed at a server reproducing Super Productivity 18.19.0 and
+newer — `GET /health` unauthenticated, every other route 401 with SP's own body
+and `WWW-Authenticate: Bearer`.
+
+| Token state | Outcome |
+|---|---|
+| SP's own token file | `read from <path>`; all checks pass |
+| `SP_API_TOKEN` set | `set (SP_API_TOKEN)`; all checks pass |
+| none found | `none found`; 401s, and names the cause |
+| rejected by SP | 401, reported as stale rather than as missing |
+| unusable value | reported unusable; `Health check... OK` |
+
+The last row is the one worth keeping: a bad token cannot make a reachable
+Super Productivity look unreachable, because `net/http` would otherwise refuse
+to send the request at all — including to `/health`, which needs no token.
+
+`tasks list` returned task data and MCP `tools/call list_tasks` returned
+`isError: false` with content, so this is not a `doctor`-only result.
+
+The token appears in none of `doctor`, `doctor --json`, `doctor --deep`,
+`status`, `tasks list`, or `--version`.
 
 | Command | Exit | Files written |
 |---------|------|---------------|
@@ -104,7 +135,7 @@ The first three are the fixes (#53, #60, and the hazard the `--` change
 introduced). The last three are the controls: a real `--dry-run` still previews
 without writing, and both the bare and `--`-prefixed forms still configure.
 
-## Live Client Validation (v0.3.2)
+## Live Client Validation (v0.3.3)
 
 `make test-live` against a running Super Productivity on Linux x86_64,
 2026-09-07. Read-only: the suite issues GET requests only, including a lookup
@@ -124,6 +155,32 @@ modify, archive or delete anything.
 - `TestLive_StoreHasSomethingToCheck` — guards against the suite passing
   vacuously against an empty store
 
+## Validation Against Current Super Productivity
+
+Everything above is measured against the maintainer's Super Productivity
+18.10.0. That is no longer the only answer.
+
+`.github/workflows/upstream-live.yml` builds Super Productivity from source
+daily and runs the live suite against it headless, for both the latest release
+and `master`. First run: **2026-09-08, both targets passing** against `v18.21.2`
+and `master` (workflow run `34184837194`).
+
+That run also confirms the token handling above against the real thing rather
+than a stand-in: the job asserts an unauthenticated `/tasks` returns 401 before
+running the suite, so a pass means the bridge authenticated against a Super
+Productivity that genuinely enforces a token.
+
+It exists because nothing else could see Super Productivity change. SP began
+requiring an access token in 18.19.0 and every published release of the bridge
+was broken against it for about a month, with CI green throughout — correctly,
+since CI tests fixtures and a stub, both of which encode what we believe SP
+does.
+
+**The limit worth stating:** the daily job verifies the bridge's *code* against
+current Super Productivity. It does not validate a published *artifact* on any
+platform, and it runs only on `ubuntu-latest`. The artifact validation above is
+still Linux x86_64 by hand.
+
 ## What "Tested" Means
 
 - **Config Generation**: Automated tests run `print-config` for the host and
@@ -135,7 +192,7 @@ modify, archive or delete anything.
 ## VS Code Copilot Host Validation (v0.1.1)
 
 Historical. Live host session validated on Linux x86_64, 2026-05-31, against
-v0.1.1. Not repeated for v0.3.2.
+v0.1.1. Not repeated for v0.3.3.
 
 - Binary: v0.1.1 installed via `scripts/install.sh` to `~/.local/bin`
 - Config: `sp-local-bridge configure vscode-copilot` wrote to `~/.config/Code/User/mcp.json`

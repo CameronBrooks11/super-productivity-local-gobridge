@@ -63,6 +63,7 @@ scripts-check:
 	@bash -n scripts/install.sh
 	@bash -n scripts/uninstall.sh
 	@bash -n scripts/release-notes.sh
+	@bash -n scripts/upstream-live-check.sh
 	@echo "Scripts syntax OK."
 
 docs:

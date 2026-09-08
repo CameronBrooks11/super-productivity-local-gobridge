@@ -1,0 +1,135 @@
+# Runs the live suite against a real Super Productivity, daily.
+#
+# The bridge's own CI cannot see Super Productivity change: it tests against
+# committed fixtures and a stub, both of which encode what we believe SP does.
+# SP began requiring an access token in 18.19.0 and every published release of
+# the bridge was broken against it for about a month (#64) with CI green the
+# whole time. Only a real SP catches SP changing.
+#
+# Two targets, deliberately different in weight. The latest release answers "is
+# what people run broken now" and gates this job. `master` answers "is it about
+# to be", which is the lead time that would have caught #64 before it shipped —
+# but master breaks for reasons that are not ours, so it reports without
+# failing.
+name: Upstream live
+
+on:
+  schedule:
+    # 05:00 UTC daily. A break should be found within a day; #64 had a month.
+    - cron: "0 5 * * *"
+  # Kept so a run can be triggered the moment Super Productivity publishes a
+  # release, rather than waiting for the next night.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: release
+            gates: true
+          - target: master
+            gates: false
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    # master breaks for reasons that are not ours, and a permanently red job is
+    # one nobody reads. It still reports — the failure is visible on the job and
+    # opens an issue — it just does not gate.
+    continue-on-error: ${{ !matrix.gates }}
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Resolve the Super Productivity ref
+        id: ref
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.target }}" = "release" ]; then
+            ref="$(gh release view --repo super-productivity/super-productivity --json tagName -q .tagName)"
+          else
+            ref=master
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "Testing against Super Productivity $ref"
+
+      - name: Check out Super Productivity
+        uses: actions/checkout@v7
+        with:
+          repository: super-productivity/super-productivity
+          ref: ${{ steps.ref.outputs.ref }}
+          path: sp
+
+      - name: Install headless display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb libgbm1 libnss3 libasound2t64
+
+      # Its own step so a failure here is visibly SP's build, not our suite.
+      - name: Build Super Productivity
+        id: build
+        working-directory: sp
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run buildFrontend:prod:es6
+          npm run electron:build
+
+      - name: Run the live suite against it
+        id: live
+        run: ./scripts/upstream-live-check.sh "$GITHUB_WORKSPACE/sp"
+
+      - name: Report a real failure
+        # Only when the suite itself failed. The script exits 2 when the
+        # environment never came up, which says nothing about the bridge, and
+        # a failed SP build never reaches this step at all — neither should
+        # open an issue, or the signal becomes noise nobody reads.
+        if: failure() && steps.live.conclusion == 'failure' && steps.build.conclusion == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET: ${{ matrix.target }}
+          SP_REF: ${{ steps.ref.outputs.ref }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="Live suite fails against Super Productivity ($TARGET)"
+          body=$(printf '%s\n' \
+            "The daily live check failed against Super Productivity \`$SP_REF\` ($TARGET)." \
+            "" \
+            "Super Productivity built successfully and its Local REST API came up, so this is a" \
+            "finding about the bridge rather than a broken upstream build or a flaky runner." \
+            "" \
+            "Run: $RUN_URL" \
+            "" \
+            "Opened automatically by \`.github/workflows/upstream-live.yml\`.")
+          existing="$(gh issue list --state open --search "$title in:title" --json number,title \
+            -q "[.[] | select(.title == \"$title\")] | .[0].number // empty")"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+            echo "Commented on #$existing"
+          else
+            gh issue create --title "$title" --label bug --body "$body"
+          fi
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sp-log-${{ matrix.target }}
+          path: sp/.ci-sp.log
+          if-no-files-found: ignore

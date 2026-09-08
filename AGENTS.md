@@ -78,6 +78,41 @@ what we send, or a failure a read-only run cannot provoke. Run it after touching
 release. There is deliberately no auto-update mode: regenerating from a live
 store would commit personal data.
 
+## Catching upstream drift
+
+`make test-live` only runs when a human types it, and the rest of CI tests
+against committed fixtures and a stub — both of which encode what *we* believe
+Super Productivity does. So nothing in CI could see SP change. It changed:
+18.19.0 began requiring an access token and every published release of the
+bridge was broken against it for about a month (#64), with CI green throughout.
+
+`.github/workflows/upstream-live.yml` runs daily against a real Super
+Productivity, built from source and started headless.
+`scripts/upstream-live-check.sh` holds the logic, so it can be run by hand
+against any built SP checkout rather than only inside a workflow.
+
+Three details are load-bearing, and each was learned the hard way:
+
+- **`NODE_ENV=DEV` plus `SP_FORCE_LOCAL_REST_API=1`** turns the API on without
+  touching settings, and `SP_FORCE_LOCAL_REST_API_TOKEN` pins the credential.
+  `--custom-url=` overrides the DEV branch that would otherwise load
+  `http://localhost:4200`, so a built frontend is enough and no `ng serve` runs
+  alongside.
+- **SP's port 3876 is hard-coded**, so a developer's own running Super
+  Productivity answers these requests instead and the whole run passes against
+  the wrong instance. The script refuses to start if anything already answers
+  there. To run it on a machine where SP is running, give it its own network
+  namespace: `unshare -rn`, `ip link set lo up`, then the script.
+- **A thin store passes vacuously.** The suite skips any field absent from the
+  store, so seeding two bare titles left eight fields unchecked and the archived
+  pool empty. The seed deliberately creates a subtask, a completed task, an
+  archived task and a current task; that took it to three, and those three
+  (`color`, `modified`) cannot be set through the API at all.
+
+`master` is watched alongside the latest release for lead time, and reports
+without gating: it breaks for reasons that are not ours, and a permanently red
+job is one nobody reads.
+
 ## Releases
 
 The GitHub release body is the tag's section of `CHANGELOG.md`, extracted by

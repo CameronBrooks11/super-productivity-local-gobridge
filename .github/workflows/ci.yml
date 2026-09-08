@@ -45,7 +45,11 @@ jobs:
         run: go tool cover -func=coverage.out
       - name: Script syntax check
         if: matrix.os == 'ubuntu-latest'
-        run: bash -n scripts/install.sh && bash -n scripts/uninstall.sh
+        run: |
+          bash -n scripts/install.sh
+          bash -n scripts/uninstall.sh
+          bash -n scripts/release-notes.sh
+          bash -n scripts/upstream-live-check.sh
       - name: Script behavior tests
         if: matrix.os == 'ubuntu-latest'
         run: |

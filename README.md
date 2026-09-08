@@ -69,6 +69,7 @@ See the full [Install Guide](https://cameronbrooks11.github.io/super-productivit
 ```bash
 sp-local-bridge doctor                 # Check SP connectivity + environment
 sp-local-bridge tasks list             # List tasks
+sp-local-bridge tasks list --format table   # ...as a readable table (or: ids)
 sp-local-bridge tasks add "Title" [--project-id <id>] [--tag-id <id>]  # Create task
 sp-local-bridge tasks start <id>       # Start time tracking
 sp-local-bridge tasks stop-current     # Stop time tracking

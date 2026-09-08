@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--format table` and `--format ids` on every CLI command, alongside the
+  existing JSON output (#11). Listing 16 tasks produced about 250 lines of JSON
+  and no other way to read them; `--format table` puts each on one line, and
+  `--format ids` prints ids alone so a list can be piped into another command.
+
+  JSON remains the default. It is an interface, and changing what a bare
+  `tasks list` prints would break anything already parsing it — so the human
+  formats are opt-in. `doctor` is unaffected and keeps its own `--json`.
+
+  A table has fixed columns per entity, all of them fields the compact
+  projection already returns, so it costs no extra requests. Project and tag
+  names are not columns for that reason: they would need a second and third
+  request on every render. `timeSpent` and `timeEstimate` print as `1h30m`,
+  the same form `--time-estimate` accepts, so a displayed value can be typed
+  back in.
+
+  `--full` is rejected with `table` and `ids` rather than silently ignored: it
+  turns off the field projection, which means nothing to a fixed column set,
+  and an inert flag is worse than a refused one. `--format ids` is likewise
+  refused on `health` and `status`, before the request goes out, because
+  neither returns an entity with an id.
+
+  Nothing is truncated to terminal width. Reading the real width from Go's
+  standard library needs a per-OS `ioctl` behind build tags across the
+  Linux/macOS/Windows matrix, and sizing columns to their contents instead
+  keeps the output identical everywhere and testable without a fake terminal.
+
 ## [0.3.3] - 2026-09-07
 
 ### Fixed

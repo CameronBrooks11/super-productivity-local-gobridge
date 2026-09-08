@@ -102,3 +102,13 @@ sp-local-bridge tasks start <id>          # Start time tracking
 sp-local-bridge tasks stop-current        # Stop tracking
 sp-local-bridge tasks complete <id>       # Mark done
 ```
+
+Every command prints JSON by default. Add `--format table` for a readable
+summary, or `--format ids` to feed ids into another command:
+
+```bash
+sp-local-bridge tasks list --format table
+sp-local-bridge tasks list --query report --format ids | xargs -n1 sp-local-bridge tasks get
+```
+
+See [Output formats](./operations.md#output-formats) for the full set.

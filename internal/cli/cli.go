@@ -56,6 +56,13 @@ func Usage() {
 	fmt.Println("                               the done filter to archived tasks whatever their isDone")
 	fmt.Println("                               value, so --source archived alone returns nothing.")
 	fmt.Println()
+	fmt.Println("Output (accepted after any command above):")
+	fmt.Println("  --format <fmt>               json (default), table, or ids")
+	fmt.Println("                               table  aligned columns, one line per item")
+	fmt.Println("                               ids    one id per line, for scripting")
+	fmt.Println("                               --full shapes json only, and is rejected with")
+	fmt.Println("                               table or ids.")
+	fmt.Println()
 	fmt.Println("Task create flags (tasks add):")
 	fmt.Println("  --project-id <id>            Assign to project (from projects list)")
 	fmt.Println("  --tag-id <id>                Assign a tag (from tags list)")
@@ -92,9 +99,9 @@ func Run(args []string) int {
 
 	switch command {
 	case "health":
-		return execOp(ctx, service, bridge.OpBridgeHealth, nil)
+		return execSimple(ctx, service, bridge.OpBridgeHealth, args[1:])
 	case "status":
-		return execOp(ctx, service, bridge.OpStatusGet, nil)
+		return execSimple(ctx, service, bridge.OpStatusGet, args[1:])
 	case "tasks":
 		return handleTasks(ctx, service, args[1:])
 	case "projects":
@@ -123,6 +130,11 @@ func handleTasks(ctx context.Context, service *bridge.Service, args []string) in
 		Usage()
 		return 0
 	}
+	format, args, err := extractFormat(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		return 2
+	}
 	sub := "list"
 	if len(args) > 0 {
 		sub = args[0]
@@ -139,76 +151,80 @@ func handleTasks(ctx context.Context, service *bridge.Service, args []string) in
 			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 			return 2
 		}
-		return execOp(ctx, service, bridge.OpTaskList, flags)
+		if err := rejectFullWithFormat(flags, format); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+			return 2
+		}
+		return execOp(ctx, service, bridge.OpTaskList, flags, format)
 
 	case "get":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "Error: tasks get requires a task ID")
 			return 2
 		}
-		return execOp(ctx, service, bridge.OpTaskGet, rawPayload("id", args[1]))
+		return execOp(ctx, service, bridge.OpTaskGet, rawPayload("id", args[1]), format)
 
 	case "add":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "Error: tasks add requires a title")
 			return 2
 		}
-		return handleTaskAdd(ctx, service, args[1:])
+		return handleTaskAdd(ctx, service, args[1:], format)
 
 	case "update":
-		return handleTaskUpdate(ctx, service, args[1:])
+		return handleTaskUpdate(ctx, service, args[1:], format)
 
 	case "complete":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "Error: tasks complete requires a task ID")
 			return 2
 		}
-		return execOp(ctx, service, bridge.OpTaskComplete, rawPayload("id", args[1]))
+		return execOp(ctx, service, bridge.OpTaskComplete, rawPayload("id", args[1]), format)
 
 	case "uncomplete":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "Error: tasks uncomplete requires a task ID")
 			return 2
 		}
-		return execOp(ctx, service, bridge.OpTaskUncomplete, rawPayload("id", args[1]))
+		return execOp(ctx, service, bridge.OpTaskUncomplete, rawPayload("id", args[1]), format)
 
 	case "start":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "Error: tasks start requires a task ID")
 			return 2
 		}
-		return execOp(ctx, service, bridge.OpTaskStart, rawPayload("id", args[1]))
+		return execOp(ctx, service, bridge.OpTaskStart, rawPayload("id", args[1]), format)
 
 	case "stop-current":
-		return execOp(ctx, service, bridge.OpTaskStopCurrent, nil)
+		return execOp(ctx, service, bridge.OpTaskStopCurrent, nil, format)
 
 	case "current":
-		return execOp(ctx, service, bridge.OpTaskGetCurrent, nil)
+		return execOp(ctx, service, bridge.OpTaskGetCurrent, nil, format)
 
 	case "set-current":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "Error: tasks set-current requires a task ID")
 			return 2
 		}
-		return execOp(ctx, service, bridge.OpTaskSetCurrent, rawPayload("taskId", args[1]))
+		return execOp(ctx, service, bridge.OpTaskSetCurrent, rawPayload("taskId", args[1]), format)
 
 	case "clear-current":
 		payload := map[string]json.RawMessage{"taskId": json.RawMessage("null")}
-		return execOp(ctx, service, bridge.OpTaskSetCurrent, payload)
+		return execOp(ctx, service, bridge.OpTaskSetCurrent, payload, format)
 
 	case "archive":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "Error: tasks archive requires a task ID")
 			return 2
 		}
-		return execOp(ctx, service, bridge.OpTaskArchive, rawPayload("id", args[1]))
+		return execOp(ctx, service, bridge.OpTaskArchive, rawPayload("id", args[1]), format)
 
 	case "restore":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "Error: tasks restore requires a task ID")
 			return 2
 		}
-		return execOp(ctx, service, bridge.OpTaskRestore, rawPayload("id", args[1]))
+		return execOp(ctx, service, bridge.OpTaskRestore, rawPayload("id", args[1]), format)
 
 	default:
 		fmt.Fprintf(os.Stderr, "Error: unknown tasks subcommand '%s'\n", sub)
@@ -216,7 +232,7 @@ func handleTasks(ctx context.Context, service *bridge.Service, args []string) in
 	}
 }
 
-func handleTaskAdd(ctx context.Context, service *bridge.Service, args []string) int {
+func handleTaskAdd(ctx context.Context, service *bridge.Service, args []string, format outputFormat) int {
 	payload := map[string]json.RawMessage{}
 
 	// First non-flag arg is the title
@@ -283,10 +299,10 @@ func handleTaskAdd(ctx context.Context, service *bridge.Service, args []string) 
 	}
 	payload["title"] = mustMarshal(title)
 
-	return execOp(ctx, service, bridge.OpTaskCreate, payload)
+	return execOp(ctx, service, bridge.OpTaskCreate, payload, format)
 }
 
-func handleTaskUpdate(ctx context.Context, service *bridge.Service, args []string) int {
+func handleTaskUpdate(ctx context.Context, service *bridge.Service, args []string, format outputFormat) int {
 	if hasHelpFlag(args) {
 		Usage()
 		return 0
@@ -374,13 +390,18 @@ func handleTaskUpdate(ctx context.Context, service *bridge.Service, args []strin
 		return 2
 	}
 
-	return execOp(ctx, service, bridge.OpTaskUpdate, payload)
+	return execOp(ctx, service, bridge.OpTaskUpdate, payload, format)
 }
 
 func handleProjects(ctx context.Context, service *bridge.Service, args []string) int {
 	if hasHelpFlag(args) {
 		Usage()
 		return 0
+	}
+	format, args, err := extractFormat(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		return 2
 	}
 	sub := "list"
 	if len(args) > 0 {
@@ -395,13 +416,22 @@ func handleProjects(ctx context.Context, service *bridge.Service, args []string)
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		return 2
 	}
-	return execOp(ctx, service, bridge.OpProjectList, flags)
+	if err := rejectFullWithFormat(flags, format); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		return 2
+	}
+	return execOp(ctx, service, bridge.OpProjectList, flags, format)
 }
 
 func handleTags(ctx context.Context, service *bridge.Service, args []string) int {
 	if hasHelpFlag(args) {
 		Usage()
 		return 0
+	}
+	format, args, err := extractFormat(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		return 2
 	}
 	sub := "list"
 	if len(args) > 0 {
@@ -416,32 +446,41 @@ func handleTags(ctx context.Context, service *bridge.Service, args []string) int
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		return 2
 	}
-	return execOp(ctx, service, bridge.OpTagList, flags)
+	if err := rejectFullWithFormat(flags, format); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		return 2
+	}
+	return execOp(ctx, service, bridge.OpTagList, flags, format)
 }
 
 // --- Helpers ---
 
-func execOp(ctx context.Context, service *bridge.Service, op string, payload map[string]json.RawMessage) int {
-	req := bridge.Request{Operation: op, Payload: payload}
-	result := service.Execute(ctx, req)
-	return printResult(result)
+// execSimple runs a payload-less operation, taking --format off the tail.
+// Anything else in args stays ignored, exactly as it was before the flag
+// existed.
+func execSimple(ctx context.Context, service *bridge.Service, op string, args []string) int {
+	format, _, err := extractFormat(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		return 2
+	}
+	return execOp(ctx, service, op, nil, format)
 }
 
-func printResult(result bridge.Result) int {
-	if result.OK {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		enc.Encode(result.Data)
-		// stderr, so piping the JSON stays clean while a human still learns the
-		// list was cut. Without it a truncated list looks like a complete one.
-		if truncated, _ := result.Meta["truncated"].(bool); truncated {
-			fmt.Fprintf(os.Stderr, "Note: truncated — showing %v of %v matching items.\n",
-				result.Meta["returned"], result.Meta["matched"])
-		}
-		return 0
+func execOp(ctx context.Context, service *bridge.Service, op string, payload map[string]json.RawMessage, format outputFormat) int {
+	// Refused before the request goes out: health and status return no entity,
+	// so --format ids would cost a round trip only to fail on the response.
+	if format == formatIDs && idlessOps[op] {
+		fmt.Fprintf(os.Stderr, "Error: Flag --format ids is not available for this command; its result carries no id\n")
+		return 2
 	}
-	fmt.Fprintf(os.Stderr, "Error [%s]: %s\n", result.Error.Code, result.Error.Message)
-	return 1
+	req := bridge.Request{Operation: op, Payload: payload}
+	result := service.Execute(ctx, req)
+	return printResult(result, op, format)
+}
+
+func printResult(result bridge.Result, op string, format outputFormat) int {
+	return writeResult(os.Stdout, os.Stderr, result, op, format)
 }
 
 func rawPayload(key, value string) map[string]json.RawMessage {

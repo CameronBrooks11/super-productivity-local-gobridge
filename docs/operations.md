@@ -60,10 +60,17 @@ Same as create except: `parentId` is not allowed on update.
 | `projectId` | string | Filter by project |
 | `tagId` | string | Filter by tag (`TODAY` for today's tasks) |
 | `includeDone` | boolean | Include completed tasks |
-| `limit` | integer 1–100000 | Return at most this many items. Omit to return everything |
+| `limit` | integer 1–100000 | Return at most this many items. Over MCP, omitting it defaults to 20; over the CLI, omitting it returns everything |
 | `offset` | integer 0–100000 | Skip this many items before applying `limit` |
 | `full` | boolean | Return whole entities instead of the compact field set |
 | `source` | `active` \| `archived` \| `all` | Task pool (default: `active`) |
+
+Over MCP the default exists because the bridge cannot know what the host will
+do with a very large tool result — spill it to a file, truncate it, or refuse
+it. The CLI has no such constraint and keeps returning everything, so a pipe
+into `jq` is unaffected. Pass `limit=100000` over MCP to lift the cap; `limit=0`
+is an error rather than a synonym for "everything", because a host filling an
+integer field with its zero default would otherwise request the whole store.
 
 `limit`, `offset` and `full` apply to `list_projects` and `list_tags` too, and
 are applied by the bridge — Super Productivity ignores them. See
@@ -439,7 +446,11 @@ sp-local-bridge tasks list --include-done --limit 20
 sp-local-bridge tasks list --limit 20 --offset 20   # next page
 ```
 
-Measured against the same 284-task store:
+Measured against the same 284-task store. **The token column is a `bytes / 4`
+estimate and runs about a third low**: measured against a tokenizer, this
+project's payloads are 2.7 bytes per token, because the opaque nanoid task IDs
+tokenize at 1.40 bytes each. Treat these as relative comparisons, not as
+absolute budgets:
 
 | Request | Size | ≈ tokens |
 |---|---|---|

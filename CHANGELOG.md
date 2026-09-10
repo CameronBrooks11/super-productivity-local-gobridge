@@ -37,6 +37,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Linux/macOS/Windows matrix, and sizing columns to their contents instead
   keeps the output identical everywhere and testable without a fake terminal.
 
+### Fixed
+
+- The `limit=0` error told MCP callers to "omit it entirely to return
+  everything". That stopped being true in 0.4.0, which caps an omitted limit at
+  20 — so the one message a model reads after getting the filter wrong pointed
+  it at the wrong remedy. It now names the explicit opt-out instead, and says
+  nothing about what omission does, because that legitimately differs between
+  the CLI and the MCP adapter
+
+  The CLI's own `--limit 0` message is unchanged and still correct: omitting
+  `--limit` there does return everything.
+
+
+## [0.4.0] - 2026-09-09
+
+### Changed
+
+- The MCP list tools now return at most 20 items when the caller omits `limit`.
+  Omitting it previously returned every matching item: on a store of 198 tasks
+  that is 31,687 characters and 11,618 tokens, against 4,306 and 1,593 at
+  `limit=20`. Hosts differ in what they do with a result that size — spill it to
+  a file, truncate it, refuse it — and none of that is under the bridge's
+  control, so it no longer sends one unasked (#65)
+
+  This is what closed issue #29 specified and only half-shipped: "a sensible
+  default cap with an explicit opt-out beats returning everything by default".
+  `limit` and `offset` landed in v0.3.0; the default did not.
+
+  The existing truncation note fires for the default, so a capped list is never
+  mistakable for a complete one. To lift the cap, pass `limit=100000`
+  explicitly. `limit=0` remains an error rather than a synonym for "everything",
+  because a host filling an integer field with its zero default would otherwise
+  request the whole store.
+
+  **The CLI is unchanged.** `tasks list` with no `--limit` still returns
+  everything, and its truncation note still goes to stderr so a pipe into `jq`
+  stays clean. The default is applied in the MCP adapter, not in the shared
+  validator: a human reading a list has no context window to protect, and
+  silently truncating existing scripts would be the larger harm.
+
+  Applies to `list_tasks`, `list_projects` and `list_tags`.
+
 ## [0.3.3] - 2026-09-07
 
 ### Fixed
@@ -366,7 +408,8 @@ The Go bridge skips 0.2.x because the Python bridge had already spent it:
 reserved on PyPI. The Go bridge's own 0.1.0 and 0.1.1 above do collide with
 Python tags of the same name, which is the confusion 0.3.0 stops repeating.
 
-[Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.0...v0.3.1

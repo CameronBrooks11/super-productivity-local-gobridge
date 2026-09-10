@@ -10,9 +10,10 @@ import (
 	"github.com/CameronBrooks11/super-productivity-local-gobridge/internal/bridge"
 )
 
-// twoTasks mirrors testdata/fixtures/task-list-ok.json after the bridge's
-// compact projection: one task with a due day and tracked time, one with
-// neither. Numbers are float64 because the client unmarshals responses into
+// twoTasks carries the fields the task table draws — one task with a due day
+// and tracked time, one with neither. That is a subset of the bridge's compact
+// projection, which also returns projectId, tagIds, subTaskIds and notes; none
+// of those are columns, so none are here. Numbers are float64 because the client unmarshals responses into
 // `any`, which is what the renderer actually receives.
 func twoTasks() []any {
 	return []any{
@@ -320,6 +321,89 @@ func TestRenderIDs_NonEntityIsAnError(t *testing.T) {
 
 // health and status carry no id at all, and are refused before the request goes
 // out rather than after.
+func TestRenderIDs_OneLinePerID(t *testing.T) {
+	// The documented use is `--format ids | xargs`, so the caller acts on every
+	// line it reads. An id carrying a newline would become two lines, and the
+	// caller would act on a value that was never in the store — the same
+	// failure the collect-before-writing guard exists to prevent, arriving by a
+	// different route. Not reachable through SP's own id generation; the point
+	// is that the guarantee this format offers does not depend on that.
+	out, _, code := render(t, bridge.OpTaskList, []any{
+		map[string]any{"id": "good1"},
+		map[string]any{"id": "evil\nINJECTED"},
+		map[string]any{"id": "good2"},
+	}, formatIDs)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 3 {
+		t.Errorf("got %d lines from 3 ids, want 3:\n%s", len(lines), out)
+	}
+	if strings.Contains(out, "\nINJECTED") {
+		t.Errorf("a newline inside an id reached the output unescaped:\n%q", out)
+	}
+}
+
+func TestOneLine_QuotesEveryControlCharacter(t *testing.T) {
+	// A table is printed row by row, so a title carrying cursor-movement or
+	// erase sequences can redraw rows already on screen — a later row can
+	// overwrite an earlier one with different text. Escaping only the three
+	// characters that end a line left every other control byte to reach the
+	// terminal, while the JSON output beside it escaped them all.
+	//
+	// The guarantee is: anything a terminal acts on is detected and quoted, and
+	// every C0 byte is escaped outright. DEL and C1 are quoted but not escaped —
+	// encoding/json does not escape them — which is enough because a UTF-8
+	// terminal does not interpret them.
+	for _, tc := range []struct {
+		name string
+		in   string
+	}{
+		{"escape", "x\x1b[1A\x1b[2Kforged"},
+		{"bell", "ding\x07"},
+		{"backspace", "typo\x08\x08fix"},
+		{"NUL", "a\x00b"},
+		{"DEL", "a\x7fb"},
+		{"C1 CSI", "a\u009bb"},
+		{"newline", "one\ntwo"},
+		{"tab", "a\tb"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := oneLine(tc.in)
+			if got == tc.in {
+				t.Errorf("passed through unquoted: %q", got)
+			}
+			// C0 is the range a terminal acts on to move the cursor or erase,
+			// and encoding/json escapes all of it. DEL and C1 are detected and
+			// quoted but survive the escaping, because encoding/json does not
+			// escape them; modern UTF-8 terminals do not interpret them as
+			// controls, so quoting is the whole of the guarantee there.
+			for _, r := range got {
+				if r < 0x20 {
+					t.Errorf("a C0 control survived quoting: %q", got)
+					break
+				}
+			}
+		})
+	}
+}
+
+func TestOneLine_LeavesOrdinaryTextAlone(t *testing.T) {
+	// Quoting is visible in the output, so it must not fire on text that would
+	// have printed correctly — including non-Latin titles, which are ordinary.
+	for _, in := range []string{
+		"Review budget spreadsheet",
+		"Ship v0.4.0 — and tell the user",
+		"プロジェクト計画",
+		"quotes \"inside\" a title",
+	} {
+		if got := oneLine(in); got != in {
+			t.Errorf("oneLine(%q) = %q, want it unchanged", in, got)
+		}
+	}
+}
+
 func TestIdlessOps_AreExactlyHealthAndStatus(t *testing.T) {
 	if len(idlessOps) != 2 || !idlessOps[bridge.OpBridgeHealth] || !idlessOps[bridge.OpStatusGet] {
 		t.Fatalf("expected exactly health and status, got %v", idlessOps)

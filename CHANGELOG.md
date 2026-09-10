@@ -11,9 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `--format table` and `--format ids` on the CLI's data commands —
   `health`, `status`, `tasks`, `projects` and `tags` — alongside the
-  existing JSON output (#11). Listing 16 tasks produced about 250 lines of JSON
-  and no other way to read them; `--format table` puts each on one line, and
-  `--format ids` prints ids alone so a list can be piped into another command.
+  existing JSON output (#11). Listing 16 tasks produced 166 lines of JSON and no
+  other way to read them; `--format table` puts each on one line — 17 lines for
+  the same 16 tasks — and `--format ids` prints ids alone so a list can be piped
+  into another command.
 
   JSON remains the default. It is an interface, and changing what a bare
   `tasks list` prints would break anything already parsing it — so the human
@@ -31,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and an inert flag is worse than a refused one. `--format ids` is likewise
   refused on `health` and `status`, before the request goes out, because
   neither returns an entity with an id.
+
+  A control character in a title is quoted rather than written through. A table
+  is drawn by printing rows in order, so an unescaped escape sequence can move
+  the cursor back up and redraw a row that was already correct. JSON escaped
+  these already; the table beside it should not be the weaker rendering of the
+  same data.
 
   Nothing is truncated to terminal width. Reading the real width from Go's
   standard library needs a per-OS `ioctl` behind build tags across the

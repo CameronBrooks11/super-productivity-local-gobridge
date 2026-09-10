@@ -164,11 +164,28 @@ func stringCell(field string) func(map[string]any) string {
 // can be, and an embedded newline would print as a further line with no key —
 // indistinguishable from a field whose name is empty. Quoting the value escapes
 // the break instead of hiding it.
+//
+// Every control character is quoted, not only the three that end a line. A
+// title carrying an ESC corrupts the table without any newline in it: cursor
+// and erase sequences redraw rows that were already printed, so a cell can
+// overwrite the row above it. The JSON output escapes these already, and a
+// table sitting beside it should not be the weaker rendering of the same data.
 func oneLine(s string) string {
-	if strings.ContainsAny(s, "\n\r\t") {
+	if strings.ContainsFunc(s, isControl) {
 		return compactJSON(s)
 	}
 	return s
+}
+
+// isControl reports the characters a terminal acts on rather than prints: the
+// C0 range, DEL, and the C1 range that some terminals still interpret.
+//
+// Detection is wider than the escaping that follows it. encoding/json escapes
+// C0 but leaves DEL and C1 as themselves, so for those two the guarantee is the
+// quoting alone — enough, since a UTF-8 terminal does not read them as
+// controls, and a cell that arrives quoted is visibly not ordinary text.
+func isControl(r rune) bool {
+	return r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f)
 }
 
 func boolCell(field string) func(map[string]any) string {
@@ -370,7 +387,12 @@ func renderIDs(w io.Writer, data any) error {
 		return err
 	}
 	for _, id := range ids {
-		fmt.Fprintln(w, id)
+		// An id is one line, whatever it contains. renderTable already quotes a
+		// control character; without the same here, an id holding a newline
+		// becomes two lines and the caller acts on a value that was never in
+		// the store — the exact failure the collect-before-writing above is
+		// meant to prevent.
+		fmt.Fprintln(w, oneLine(id))
 	}
 	return nil
 }
@@ -415,7 +437,10 @@ func collectIDs(data any) ([]string, error) {
 // title lines up where a byte count would push the row right. It is still only
 // an approximation of display width: a double-width glyph (CJK, emoji) prints
 // one column wide by this count and two on screen, and a combining sequence
-// counts each mark. Those rows sit a column off; nothing else is affected.
+// counts each mark. The drift is one column per such glyph, not one per row —
+// a ten-character CJK title sits ten columns wide — so a table of them loses
+// its alignment rather than merely nudging it. Correcting that needs a
+// width table no stdlib package provides.
 //
 // Rows may be ragged. A row shorter than the heading prints what it has, which
 // is how a non-entity item stays visible instead of being dropped, and such a

@@ -46,6 +46,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `health`, `status` and the ten `tasks` subcommands that take a fixed number of
+  arguments ignored anything else on the line. A mistyped flag ran the command
+  as though it had not been typed: `tasks archive <id> --formatt table`
+  archived the task and exited 0, and `health --formatt table` printed JSON and
+  exited 0 while `tasks list --formatt table` exited 2. All of them now reject
+  the first unrecognised token with exit 2, and make no request at all (#79)
+
+  For the write commands the request *is* the damage, so the test asserts that
+  none reaches Super Productivity rather than only that the exit code changed.
+
+  This is the third instance of one defect: `configure --dry-runn <host>` wrote
+  the config for real (#53), a second host was silently dropped (#60), and now
+  this. It was unreachable while these commands took no flags; `--format` (#11)
+  is the first one anyone has reason to type on them.
+
+  A stray positional is caught by the same guard, so `tasks get <id> <other>`
+  now exits 2 instead of ignoring the second.
+
+
 - The `limit=0` error told MCP callers to "omit it entirely to return
   everything". That stopped being true in 0.4.0, which caps an omitted limit at
   20 — so the one message a model reads after getting the filter wrong pointed

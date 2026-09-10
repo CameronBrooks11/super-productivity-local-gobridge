@@ -573,8 +573,16 @@ func validateListOptions(payload map[string]json.RawMessage) (listOptions, *Resu
 			// paging a list and computing limit = remaining, or a host filling
 			// an integer field with its zero default, asked for nothing and got
 			// the entire store — the blow-up this option exists to prevent.
+			//
+			// The message deliberately does not say what omitting the filter
+			// does, because that differs by surface: the CLI returns everything,
+			// the MCP adapter applies a default cap. It used to promise
+			// "everything", which became false for MCP callers the moment that
+			// cap existed.
 			if val == 0 {
-				r := Failure(ErrInvalidInput, "Filter 'limit' must be at least 1; omit it entirely to return everything")
+				r := Failure(ErrInvalidInput, fmt.Sprintf(
+					"Filter 'limit' must be at least 1. Omit it for the default, or pass %d for every item.",
+					maxListLimit))
 				return opts, &r
 			}
 			opts.limit = int(val)

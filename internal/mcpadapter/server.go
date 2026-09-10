@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 
 	"github.com/CameronBrooks11/super-productivity-local-gobridge/internal/bridge"
 	"github.com/CameronBrooks11/super-productivity-local-gobridge/internal/version"
@@ -105,7 +106,7 @@ func (s *Server) registerTools() {
 	// without bound, theme colours, worklog export column lists — so a single
 	// unfiltered list ran to roughly 24k tokens on a real store.
 	s.addTool("list_tasks", bridge.OpTaskList,
-		"List tasks with optional filters. Use list_projects or list_tags first to get IDs for filtering.",
+		"List tasks with optional filters. Returns at most "+strconv.Itoa(DefaultListLimit)+" by default; a note says so when the list was cut. Use list_projects or list_tags first to get IDs for filtering.",
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -113,7 +114,7 @@ func (s *Server) registerTools() {
 				"projectId":   map[string]any{"type": "string", "description": "Filter by project ID (from list_projects, not a name)."},
 				"tagId":       map[string]any{"type": "string", "description": "Filter by tag ID (from list_tags). Use 'TODAY' for today's tasks."},
 				"includeDone": map[string]any{"type": "boolean", "description": "Include completed tasks (default: false). Also required to see anything at all from the archived pool, whether or not those tasks are done."},
-				"limit":       map[string]any{"type": "integer", "minimum": 1, "maximum": bridge.MaxListLimit, "description": "Return at most this many items. Strongly preferred: an unfiltered list of a real store is tens of thousands of tokens. Ask for what you need — 20 is usually plenty — and narrow with the filters rather than reading everything. Omit only when you genuinely need every item."},
+				"limit":       map[string]any{"type": "integer", "minimum": 1, "maximum": bridge.MaxListLimit, "description": limitDescription()},
 				"offset":      map[string]any{"type": "integer", "minimum": 0, "maximum": bridge.MaxListLimit, "description": "Skip this many items before applying limit, for paging through a filtered list."},
 				"full":        map[string]any{"type": "boolean", "description": "Return whole entities instead of the compact field set. Rarely needed; it multiplies the response size and adds fields (per-day time maps, theme colours, issue-integration ids) that are usually noise."},
 				"source":      map[string]any{"type": "string", "enum": []string{"active", "archived", "all"}, "description": "Task pool to query (default: active). source=archived and source=all both require includeDone=true to return archived tasks: SP applies the done filter to the archived pool regardless of a task's own isDone value, so source=archived alone returns an empty list even when tasks were just archived. An empty result here does not mean the archive failed."},
@@ -274,7 +275,7 @@ func (s *Server) registerTools() {
 			"type": "object",
 			"properties": map[string]any{
 				"query":  map[string]any{"type": "string", "description": "Filter by name substring."},
-				"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": bridge.MaxListLimit, "description": "Return at most this many items. Strongly preferred: an unfiltered list of a real store is tens of thousands of tokens. Ask for what you need — 20 is usually plenty — and narrow with the filters rather than reading everything. Omit only when you genuinely need every item."},
+				"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": bridge.MaxListLimit, "description": limitDescription()},
 				"offset": map[string]any{"type": "integer", "minimum": 0, "maximum": bridge.MaxListLimit, "description": "Skip this many items before applying limit, for paging through a filtered list."},
 				"full":   map[string]any{"type": "boolean", "description": "Return whole entities instead of the compact field set. Rarely needed; it multiplies the response size and adds fields (per-day time maps, theme colours, issue-integration ids) that are usually noise."},
 			},
@@ -288,7 +289,7 @@ func (s *Server) registerTools() {
 			"type": "object",
 			"properties": map[string]any{
 				"query":  map[string]any{"type": "string", "description": "Filter by name substring."},
-				"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": bridge.MaxListLimit, "description": "Return at most this many items. Strongly preferred: an unfiltered list of a real store is tens of thousands of tokens. Ask for what you need — 20 is usually plenty — and narrow with the filters rather than reading everything. Omit only when you genuinely need every item."},
+				"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": bridge.MaxListLimit, "description": limitDescription()},
 				"offset": map[string]any{"type": "integer", "minimum": 0, "maximum": bridge.MaxListLimit, "description": "Skip this many items before applying limit, for paging through a filtered list."},
 				"full":   map[string]any{"type": "boolean", "description": "Return whole entities instead of the compact field set. Rarely needed; it multiplies the response size and adds fields (per-day time maps, theme colours, issue-integration ids) that are usually noise."},
 			},
@@ -401,11 +402,72 @@ func (s *Server) handleToolsCall(req jsonrpcRequest) {
 
 	// Execute operation
 	ctx := context.Background()
+	payload = applyDefaultLimit(operation, payload)
 	bridgeReq := bridge.Request{Operation: operation, Payload: payload}
 	result := s.service.Execute(ctx, bridgeReq)
 
 	// Convert to MCP tool result
 	s.writeToolResult(req.ID, result)
+}
+
+// DefaultListLimit bounds a list tool that was called without one.
+//
+// Omitting the limit used to return every matching item. On a real store that
+// is a very large tool result: this project's own store of 198 tasks measures
+// 31,687 characters and 11,618 tokens unbounded, against 4,306 and 1,593 at
+// limit=20. Hosts differ in what they do with a result that size — spill it to
+// a file, truncate it, refuse it — and none of it is under our control, so the
+// bridge should not send it unasked.
+//
+// 20 is the value the tool descriptions already recommend, and the only one
+// measured end to end. A caller that genuinely wants everything asks for
+// MaxListLimit explicitly; that is deliberately harder to do by accident than
+// omitting a field, which is the same reasoning that makes limit=0 an error
+// rather than a synonym for "no limit".
+const DefaultListLimit = 20
+
+// limitDescription is built from DefaultListLimit rather than repeating it, so
+// the number the model is told cannot drift from the number the server applies.
+// A description promising 20 while the server capped at 100 would be worse than
+// no default at all: the model would plan its paging against a lie.
+func limitDescription() string {
+	return "Return at most this many items. Defaults to " + strconv.Itoa(DefaultListLimit) +
+		" when omitted, because an unbounded list of a real store is tens of thousands of tokens. " +
+		"Narrow with the filters rather than reading everything; page with offset if you need more. " +
+		"To lift the cap entirely, pass limit=" + strconv.Itoa(bridge.MaxListLimit) +
+		" — but a truncation note tells you when there is more, so you rarely need to."
+}
+
+// listOperations are the operations that return an unbounded list, and so are
+// the ones a missing limit can blow up.
+var listOperations = map[string]bool{
+	bridge.OpTaskList:    true,
+	bridge.OpProjectList: true,
+	bridge.OpTagList:     true,
+}
+
+// applyDefaultLimit supplies DefaultListLimit when a list tool was called
+// without one.
+//
+// Deliberately here and not in the bridge: the CLI shares
+// bridge.Service.Execute, and its contract is that omitting --limit returns
+// everything. A human piping `tasks list` into jq wants the whole list and has
+// no context window to protect. Defaulting in the shared validator would
+// silently truncate that.
+func applyDefaultLimit(operation string, payload map[string]json.RawMessage) map[string]json.RawMessage {
+	if !listOperations[operation] {
+		return payload
+	}
+	if _, ok := payload["limit"]; ok {
+		return payload
+	}
+	// A nil payload is the no-arguments call, which is exactly the case this
+	// exists for, so it gets a map rather than being left alone.
+	if payload == nil {
+		payload = map[string]json.RawMessage{}
+	}
+	payload["limit"] = json.RawMessage(strconv.Itoa(DefaultListLimit))
+	return payload
 }
 
 func (s *Server) writeToolResult(id json.RawMessage, result bridge.Result) {

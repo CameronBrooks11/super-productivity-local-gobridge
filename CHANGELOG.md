@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The `limit=0` error told MCP callers to "omit it entirely to return
+  everything". That stopped being true in 0.4.0, which caps an omitted limit at
+  20 — so the one message a model reads after getting the filter wrong pointed
+  it at the wrong remedy. It now names the explicit opt-out instead, and says
+  nothing about what omission does, because that legitimately differs between
+  the CLI and the MCP adapter
+
+  The CLI's own `--limit 0` message is unchanged and still correct: omitting
+  `--limit` there does return everything.
+
+
 ## [0.4.0] - 2026-09-09
 
 ### Changed

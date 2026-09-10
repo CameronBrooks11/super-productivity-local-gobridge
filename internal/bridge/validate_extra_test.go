@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -347,5 +348,26 @@ func TestService_TaskList_EmptyPayload(t *testing.T) {
 	})
 	if !result.OK {
 		t.Fatalf("expected OK, got error: %+v", result.Error)
+	}
+}
+
+func TestLimitZeroMessageNamesTheOptOut(t *testing.T) {
+	// The message used to promise that omitting the filter returned everything.
+	// That became false for MCP callers the moment the adapter gained a default
+	// cap, and nothing caught it: no test covered this message at all.
+	//
+	// This pins the one thing that is true on every surface and actionable — the
+	// explicit opt-out value — and derives it from the constant so the message
+	// and the limit cannot drift apart. It deliberately does not pin the rest of
+	// the wording: a test that asserts a sentence keeps a wrong explanation
+	// alive instead of catching it.
+	_, r := validateListOptions(map[string]json.RawMessage{
+		"limit": json.RawMessage("0"),
+	})
+	if r == nil {
+		t.Fatal("limit=0 was accepted; it must be an error")
+	}
+	if !strings.Contains(r.Error.Message, strconv.Itoa(maxListLimit)) {
+		t.Errorf("the message does not name the opt-out value %d: %q", maxListLimit, r.Error.Message)
 	}
 }

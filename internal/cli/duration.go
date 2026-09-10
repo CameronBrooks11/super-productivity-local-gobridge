@@ -105,3 +105,30 @@ func expandDays(s string) (string, error) {
 	}
 	return hours + "h" + rest, nil
 }
+
+// formatDurationMs renders milliseconds the way parseDurationMs reads them, so
+// a value shown as 1h30m can be typed straight back into --time-estimate.
+//
+// Zero components are omitted. A sub-second value reports "<1s" rather than
+// rounding to 0s, for the same reason parseDurationMs refuses to write one: a
+// duration that reads as zero when it is not is how recorded time gets wiped.
+func formatDurationMs(ms int64) string {
+	if ms <= 0 {
+		return "0s"
+	}
+	secs := ms / 1000
+	if secs == 0 {
+		return "<1s"
+	}
+	var b strings.Builder
+	if h := secs / 3600; h > 0 {
+		fmt.Fprintf(&b, "%dh", h)
+	}
+	if m := (secs % 3600) / 60; m > 0 {
+		fmt.Fprintf(&b, "%dm", m)
+	}
+	if s := secs % 60; s > 0 {
+		fmt.Fprintf(&b, "%ds", s)
+	}
+	return b.String()
+}

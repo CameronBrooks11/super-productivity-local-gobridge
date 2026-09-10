@@ -503,3 +503,61 @@ A bare integer keeps its original meaning, so existing scripts are unaffected.
 A unit suffix (`s`, `m`, `h`, and a leading `d` for days) is parsed as a
 duration. MCP callers continue to send integer milliseconds, and the tool
 descriptions carry conversion examples.
+
+## Output formats
+
+The data commands — `health`, `status`, `tasks`, `projects` and `tags` — emit
+JSON by default, and that has not changed: the JSON output is an interface, so
+anything already parsing it keeps working. `--format` selects a different
+rendering and is accepted after any of those five.
+
+`doctor`, `print-config` and `configure` do not take it. `doctor` is a
+diagnostic rather than an entity view and has its own `--json`; the other two
+print a host config file, which has no table form.
+
+```console
+$ sp-local-bridge tasks list --include-done --format table
+ID           DONE  TITLE                      DUE         SPENT/EST
+task-abc123  no    Review budget spreadsheet  2026-06-01  15m/30m
+task-def456  yes   Send weekly report         -           -/-
+
+$ sp-local-bridge tasks list --include-done --format ids
+task-abc123
+task-def456
+```
+
+| Format | Output |
+|---|---|
+| `json` | Indented JSON. The default, unchanged. |
+| `table` | Aligned columns, one line per item. A single entity prints as `KEY  VALUE` lines. |
+| `ids` | One id per line and nothing else, for `xargs` and shell loops. |
+
+Columns are fixed per entity — task, project and tag each have their own set,
+drawn from fields the compact projection already returns, so a table costs no
+extra requests. Project and tag *names* are deliberately not columns on the task
+table: `projectId` and `tagIds` are ids, and resolving them to names would mean a
+second and third request on every render.
+
+`timeSpent` and `timeEstimate` are rendered the way `--time-estimate` reads them,
+so a value shown as `1h30m` can be typed straight back in. Zero reads as `-`: SP
+stores 0 for a task nobody has tracked or estimated, which is most of them.
+
+Nothing is truncated. Columns are sized to their contents, so a long title makes
+a long line rather than a hidden one. That also keeps the output identical on
+every platform — measuring the real terminal width from Go's standard library
+would need a per-OS `ioctl` behind build tags.
+
+`--full` shapes JSON only, and is rejected with `table` or `ids` rather than
+silently ignored:
+
+```console
+$ sp-local-bridge tasks list --full --format table
+Error: Flag --full applies to --format json only; table and ids have a fixed shape
+```
+
+`--format ids` is refused on `health` and `status`, which return no entity and
+so carry no id. It is refused before the request goes out, so it costs no round
+trip.
+
+The truncation note stays on stderr in every format. That is what keeps
+`--format ids | xargs` receiving ids and nothing else.

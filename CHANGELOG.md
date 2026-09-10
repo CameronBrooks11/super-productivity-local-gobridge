@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The MCP list tools now return at most 20 items when the caller omits `limit`.
+  Omitting it previously returned every matching item: on a store of 198 tasks
+  that is 31,687 characters and 11,618 tokens, against 4,306 and 1,593 at
+  `limit=20`. Hosts differ in what they do with a result that size — spill it to
+  a file, truncate it, refuse it — and none of that is under the bridge's
+  control, so it no longer sends one unasked (#65)
+
+  This is what closed issue #29 specified and only half-shipped: "a sensible
+  default cap with an explicit opt-out beats returning everything by default".
+  `limit` and `offset` landed in v0.3.0; the default did not.
+
+  The existing truncation note fires for the default, so a capped list is never
+  mistakable for a complete one. To lift the cap, pass `limit=100000`
+  explicitly. `limit=0` remains an error rather than a synonym for "everything",
+  because a host filling an integer field with its zero default would otherwise
+  request the whole store.
+
+  **The CLI is unchanged.** `tasks list` with no `--limit` still returns
+  everything, and its truncation note still goes to stderr so a pipe into `jq`
+  stays clean. The default is applied in the MCP adapter, not in the shared
+  validator: a human reading a list has no context window to protect, and
+  silently truncating existing scripts would be the larger harm.
+
+  Applies to `list_tasks`, `list_projects` and `list_tags`.
+
+
 ## [0.3.3] - 2026-09-07
 
 ### Fixed

@@ -16,7 +16,8 @@ import (
 // suite. The unit tests covered the client and the resolver; nothing covered
 // whether doctor handed the token to either.
 
-const wiringToken = "Ab3xY9zQ1mN5pR7tK2wV4jL6hG8dS0cF"
+// fixtureToken is a hand-typed stand-in, not a real credential.
+const fixtureToken = "Ab3xY9zQ1mN5pR7tK2wV4jL6hG8dS0cF"
 
 // spRequiringToken mimics Super Productivity 18.19.0+: GET /health needs no
 // credential, every other route demands the bearer token.
@@ -28,7 +29,7 @@ func spRequiringToken(t *testing.T) *httptest.Server {
 			_, _ = w.Write([]byte(`{"ok":true,"data":{"server":"up","rendererReady":true}}`))
 			return
 		}
-		if r.Header.Get("Authorization") != "Bearer "+wiringToken {
+		if r.Header.Get("Authorization") != "Bearer "+fixtureToken {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte(`{"ok":false,"error":{"code":"UNAUTHORIZED","message":"Authorization token required."}}`))
@@ -107,7 +108,7 @@ func isolate(t *testing.T, srv *httptest.Server) {
 func TestDoctorSendsTokenOnTheStandardChecks(t *testing.T) {
 	srv := spRequiringToken(t)
 	isolate(t, srv)
-	t.Setenv("SP_API_TOKEN", wiringToken)
+	t.Setenv("SP_API_TOKEN", fixtureToken)
 
 	out, _ := runDoctor(t)
 
@@ -126,7 +127,7 @@ func TestDoctorSendsTokenOnTheStandardChecks(t *testing.T) {
 func TestDoctorSendsTokenOnTheDeepClient(t *testing.T) {
 	srv := spRequiringToken(t)
 	isolate(t, srv)
-	t.Setenv("SP_API_TOKEN", wiringToken)
+	t.Setenv("SP_API_TOKEN", fixtureToken)
 
 	out, _ := runDoctor(t, "--deep")
 
@@ -143,7 +144,7 @@ func TestDoctorSendsTokenOnTheDeepClient(t *testing.T) {
 func TestDoctorJSONSendsToken(t *testing.T) {
 	srv := spRequiringToken(t)
 	isolate(t, srv)
-	t.Setenv("SP_API_TOKEN", wiringToken)
+	t.Setenv("SP_API_TOKEN", fixtureToken)
 
 	out, code := runDoctor(t, "--json")
 	if code != 0 {

@@ -11,8 +11,9 @@ import (
 	"testing"
 )
 
-// validToken is the shape SP generates: 32 characters from [A-Za-z0-9].
-const validToken = "Ab3xY9zQ1mN5pR7tK2wV4jL6hG8dS0cF"
+// fixtureToken is a hand-typed stand-in with the shape SP generates — 32
+// characters from [A-Za-z0-9] — never a real credential.
+const fixtureToken = "Ab3xY9zQ1mN5pR7tK2wV4jL6hG8dS0cF"
 
 // isolateHome points token lookup at a scratch directory. XDG_CONFIG_HOME has
 // to be cleared too: Electron prefers it on Linux, so leaving the developer's
@@ -52,10 +53,10 @@ func TestResolveToken_NoneConfigured(t *testing.T) {
 
 func TestResolveToken_FromEnv(t *testing.T) {
 	isolateHome(t)
-	t.Setenv(TokenEnvVar, validToken)
+	t.Setenv(TokenEnvVar, fixtureToken)
 	token, source := ResolveToken()
-	if token != validToken {
-		t.Errorf("token = %q, want %q", token, validToken)
+	if token != fixtureToken {
+		t.Errorf("token = %q, want %q", token, fixtureToken)
 	}
 	if source != TokenSourceEnv {
 		t.Errorf("source = %q, want %q", source, TokenSourceEnv)
@@ -64,10 +65,10 @@ func TestResolveToken_FromEnv(t *testing.T) {
 
 func TestResolveToken_FromFile(t *testing.T) {
 	isolateHome(t)
-	writeTokenFile(t, validToken)
+	writeTokenFile(t, fixtureToken)
 	token, source := ResolveToken()
-	if token != validToken {
-		t.Errorf("token = %q, want %q", token, validToken)
+	if token != fixtureToken {
+		t.Errorf("token = %q, want %q", token, fixtureToken)
 	}
 	if source != TokenSourceFile {
 		t.Errorf("source = %q, want %q", source, TokenSourceFile)
@@ -79,10 +80,10 @@ func TestResolveToken_EnvBeatsFile(t *testing.T) {
 	// told to "set SP_API_TOKEN" would see no change and have nothing to try.
 	isolateHome(t)
 	writeTokenFile(t, "Zz0000000000000000000000000000000"[:32])
-	t.Setenv(TokenEnvVar, validToken)
+	t.Setenv(TokenEnvVar, fixtureToken)
 	token, source := ResolveToken()
-	if token != validToken {
-		t.Errorf("token = %q, want the environment's %q", token, validToken)
+	if token != fixtureToken {
+		t.Errorf("token = %q, want the environment's %q", token, fixtureToken)
 	}
 	if source != TokenSourceEnv {
 		t.Errorf("source = %q, want %q", source, TokenSourceEnv)
@@ -94,16 +95,16 @@ func TestResolveToken_TrimsWhitespace(t *testing.T) {
 	// profile often carries spaces. Both must produce the bare credential:
 	// "Bearer <token>\n" is a malformed header value.
 	for _, tc := range []struct{ name, raw string }{
-		{"trailing newline", validToken + "\n"},
-		{"trailing CRLF", validToken + "\r\n"},
-		{"surrounding spaces", "  " + validToken + "  "},
+		{"trailing newline", fixtureToken + "\n"},
+		{"trailing CRLF", fixtureToken + "\r\n"},
+		{"surrounding spaces", "  " + fixtureToken + "  "},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			isolateHome(t)
 			writeTokenFile(t, tc.raw)
 			token, source := ResolveToken()
-			if token != validToken {
-				t.Errorf("token = %q, want %q", token, validToken)
+			if token != fixtureToken {
+				t.Errorf("token = %q, want %q", token, fixtureToken)
 			}
 			if source != TokenSourceFile {
 				t.Errorf("source = %q, want %q", source, TokenSourceFile)
@@ -119,9 +120,9 @@ func TestResolveToken_RejectsFileThatIsNotAToken(t *testing.T) {
 		{"empty", ""},
 		{"whitespace only", "   \n"},
 		{"too short", "abc123"},
-		{"too long", validToken + "extra"},
+		{"too long", fixtureToken + "extra"},
 		{"punctuation", "not-a-valid-token-aaaaaaaaaaaaaaa"},
-		{"json", `{"token":"` + validToken + `"}`},
+		{"json", `{"token":"` + fixtureToken + `"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			isolateHome(t)
@@ -144,7 +145,7 @@ func TestResolveToken_IgnoresAnOversizedFile(t *testing.T) {
 	// would yield a perfectly valid token after reading all of it into memory.
 	isolateHome(t)
 	padding := strings.Repeat(" ", maxTokenFileBytes*2)
-	writeTokenFile(t, padding+validToken+padding)
+	writeTokenFile(t, padding+fixtureToken+padding)
 
 	token, source := ResolveToken()
 	if token != "" {
@@ -166,7 +167,7 @@ func TestResolveToken_RejectsUnusableEnvValue(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			isolateHome(t)
-			writeTokenFile(t, validToken)
+			writeTokenFile(t, fixtureToken)
 			t.Setenv(TokenEnvVar, tc.value)
 
 			token, source := ResolveToken()
@@ -187,11 +188,11 @@ func TestResolveToken_BlankEnvFallsThroughToFile(t *testing.T) {
 	// An exported-but-empty variable is what a shell profile leaves behind when
 	// the value is removed. It must not shadow a working file.
 	isolateHome(t)
-	writeTokenFile(t, validToken)
+	writeTokenFile(t, fixtureToken)
 	t.Setenv(TokenEnvVar, "   ")
 	token, source := ResolveToken()
-	if token != validToken {
-		t.Errorf("token = %q, want the file's %q", token, validToken)
+	if token != fixtureToken {
+		t.Errorf("token = %q, want the file's %q", token, fixtureToken)
 	}
 	if source != TokenSourceFile {
 		t.Errorf("source = %q, want %q", source, TokenSourceFile)
@@ -211,13 +212,13 @@ func TestResolveToken_FindsFlatpakInstall(t *testing.T) {
 	if err := os.MkdirAll(flatpak, 0o755); err != nil {
 		t.Fatalf("creating the flatpak directory: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(flatpak, "local-rest-api-token"), []byte(validToken), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(flatpak, "local-rest-api-token"), []byte(fixtureToken), 0o600); err != nil {
 		t.Fatalf("writing the token file: %v", err)
 	}
 
 	token, source := ResolveToken()
-	if token != validToken {
-		t.Errorf("token = %q, want the Flatpak install's %q", token, validToken)
+	if token != fixtureToken {
+		t.Errorf("token = %q, want the Flatpak install's %q", token, fixtureToken)
 	}
 	if source != TokenSourceFile {
 		t.Errorf("source = %q, want %q", source, TokenSourceFile)
@@ -232,7 +233,7 @@ func TestResolveToken_StandardPathBeatsFlatpak(t *testing.T) {
 	// non-sandboxed one is what TokenPath() reports and what diagnostics name,
 	// so it has to be the one actually used.
 	home := isolateHome(t)
-	writeTokenFile(t, validToken)
+	writeTokenFile(t, fixtureToken)
 
 	flatpak := filepath.Join(home, ".var", "app",
 		"com.super_productivity.SuperProductivity", "config", "superProductivity")
@@ -245,8 +246,8 @@ func TestResolveToken_StandardPathBeatsFlatpak(t *testing.T) {
 	}
 
 	token, _ := ResolveToken()
-	if token != validToken {
-		t.Errorf("token = %q, want the standard path's %q, not the Flatpak one", token, validToken)
+	if token != fixtureToken {
+		t.Errorf("token = %q, want the standard path's %q, not the Flatpak one", token, fixtureToken)
 	}
 }
 
@@ -259,7 +260,7 @@ func TestUsableAsHeaderValue(t *testing.T) {
 		value string
 		want  bool
 	}{
-		{"a real token", validToken, true},
+		{"a real token", fixtureToken, true},
 		{"newline", "abc\ndef", false},
 		{"carriage return", "abc\rdef", false},
 		{"null byte", "abc\x00def", false},
@@ -313,11 +314,11 @@ func captureAuth(t *testing.T, token string) (string, bool) {
 }
 
 func TestClient_SendsBearerToken(t *testing.T) {
-	got, present := captureAuth(t, validToken)
+	got, present := captureAuth(t, fixtureToken)
 	if !present {
 		t.Fatal("no Authorization header was sent")
 	}
-	if want := "Bearer " + validToken; got != want {
+	if want := "Bearer " + fixtureToken; got != want {
 		t.Errorf("Authorization = %q, want %q", got, want)
 	}
 }
@@ -351,7 +352,7 @@ func TestClient_DoesNotFollowRedirectsWithTheToken(t *testing.T) {
 	}))
 	defer origin.Close()
 
-	client := NewClient(origin.URL).WithToken(validToken)
+	client := NewClient(origin.URL).WithToken(fixtureToken)
 	res := client.Status(context.Background())
 
 	if redirectTargetHit {
@@ -370,13 +371,13 @@ func TestClient_SendsTokenOnWritesToo(t *testing.T) {
 	var authed []bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		methods = append(methods, r.Method)
-		authed = append(authed, r.Header.Get("Authorization") == "Bearer "+validToken)
+		authed = append(authed, r.Header.Get("Authorization") == "Bearer "+fixtureToken)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true,"data":{"id":"t1"}}`))
 	}))
 	defer srv.Close()
 
-	client := NewClient(srv.URL).WithToken(validToken)
+	client := NewClient(srv.URL).WithToken(fixtureToken)
 	ctx := context.Background()
 	client.ListTasks(ctx, nil)
 	client.CreateTask(ctx, map[string]any{"title": "x"})

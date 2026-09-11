@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-11
+
 ### Added
 
 - `--format table` and `--format ids` on the CLI's data commands —
@@ -434,7 +436,8 @@ The Go bridge skips 0.2.x because the Python bridge had already spent it:
 reserved on PyPI. The Go bridge's own 0.1.0 and 0.1.1 above do collide with
 Python tags of the same name, which is the confusion 0.3.0 stops repeating.
 
-[Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/CameronBrooks11/super-productivity-local-gobridge/compare/v0.3.1...v0.3.2

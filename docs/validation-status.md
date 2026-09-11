@@ -9,7 +9,7 @@ the version that was validated, not necessarily the latest release.
 
 | Platform | CI Tests | Artifact Validation |
 |----------|----------|---------------------|
-| Linux x86_64 | `ubuntu-latest` | v0.3.3 validated (2026-09-07) |
+| Linux x86_64 | `ubuntu-latest` | v0.5.0 validated (2026-09-11) |
 | Linux arm64 | Not run | Archive checksum verified only |
 | macOS arm64 | `macos-latest` | Archive checksum verified only |
 | macOS x86_64 | Not run | Archive checksum verified only |
@@ -23,7 +23,7 @@ which architecture each currently maps to.
 
 "Archive checksum verified only" means the published archive was downloaded and
 matched `checksums.txt`, but the binary inside it has not been run on that
-platform. All six v0.3.3 archives were verified this way on 2026-09-07; Linux
+platform. All six v0.5.0 archives were verified this way on 2026-09-11; Linux
 x86_64 additionally got the full validation below.
 
 ## Host Application Validation
@@ -39,6 +39,50 @@ x86_64 additionally got the full validation below.
 host application and confirmed MCP tool invocations work end-to-end through the
 host's MCP client. This is distinct from raw stdio protocol validation below.
 No live host session has been run against v0.3.3.
+
+## Release Artifact Validation (v0.5.0)
+
+Linux x86_64, 2026-09-11, against the published release
+(`sp-local-bridge 0.5.0`, commit `67cb82e`, built `2026-09-11T05:06:52Z`).
+`scripts/install.sh` overwrote the installed v0.4.0, so unlike the v0.3.3 run
+this did not exercise a first install.
+
+- Release job completed successfully; all six platform archives and
+  `checksums.txt` published, and the release body is the `0.5.0` section of
+  `CHANGELOG.md` — `diff` against `scripts/release-notes.sh 0.5.0` differs
+  only in trailing blank lines
+- All six archives downloaded and verified: `sha256sum -c checksums.txt`
+  reports OK for each
+- The installed binary is byte-identical (`cmp`) to the separately downloaded
+  Linux x86_64 archive contents; the four multicall aliases are symlinks
+  carrying the install timestamp
+- `--version` reports `0.5.0` with the release commit and build date
+- `doctor` passes every check, including the MCP self-check (16 tools);
+  `doctor --deep` reports store integrity OK against 198 active and 17
+  archived tasks, unchanged from the v0.3.3 run
+- `configure --dry-run` exits 0 for all four hosts
+- Raw MCP stdio: `initialize` returns protocol `2024-11-05` and
+  `serverInfo {"name":"sp-local-bridge","version":"0.5.0"}`; `tools/list`
+  returns 16 tools, none of them a delete, and `list_tasks` describes `limit`
+  as defaulting to 20 when omitted (#65)
+
+### What this release changed, exercised against the live app (v0.5.0)
+
+Reads only.
+
+- `tasks list --format table --limit 3` prints a header, three one-line rows and
+  the truncation note (`showing 3 of 129 matching items`); `--format ids`
+  prints the three ids and the same note (#11)
+- `health --format ids` is refused with exit 2 before any request, because the
+  result carries no id (#11)
+- `health --formatt table` exits 2 with `unknown flag '--formatt' for health`,
+  and `tasks get <id> <extra>` exits 2 with `unexpected argument` — the two
+  shapes #79 fixed, on a read command so the live store was never at risk. The
+  write commands are covered by the unit tests, which assert no request is
+  made
+- Over MCP, `list_tasks` with `limit: 0` returns `isError` and the message
+  `Filter 'limit' must be at least 1. Omit it for the default, or pass 100000
+  for every item.` — the wording #78 corrected
 
 ## Release Artifact Validation (v0.3.3)
 
@@ -135,10 +179,10 @@ The first three are the fixes (#53, #60, and the hazard the `--` change
 introduced). The last three are the controls: a real `--dry-run` still previews
 without writing, and both the bare and `--`-prefixed forms still configure.
 
-## Live Client Validation (v0.3.3)
+## Live Client Validation (v0.5.0)
 
 `make test-live` against a running Super Productivity on Linux x86_64,
-2026-09-07. Read-only: the suite issues GET requests only, including a lookup
+2026-09-11 (previously 2026-09-07 at v0.3.3; same seven tests, same result). Read-only: the suite issues GET requests only, including a lookup
 of a non-existent task id and of a non-existent route. It does not create,
 modify, archive or delete anything.
 

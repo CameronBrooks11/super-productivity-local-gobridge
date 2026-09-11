@@ -158,9 +158,11 @@ rule exists:
 - `super-productivity/super-productivity#9946` — a missing id yields a phantom
   task object with no `id`, so every `if (!task)` guard downstream is inert and
   `deleteTaskHelper` matches every top-level task. Shut at the REST entry point
-  from SP `v18.15.0`; still reachable through the Plugin API on `master`. That
-  check covers two known lookup helpers, not every route, so the rule above
-  stands whatever version you are pointed at.
+  from SP `v18.15.0`, and fixed at the selector and in `deleteTaskHelper` by
+  upstream PR #10034 (merged 2026-09-10, not in any release as of `v18.21.2`).
+  Until it ships, every released build still has the Plugin API path open; and
+  the rule above stands regardless, because it is about handlers whose
+  behaviour has not been read, not about this one defect.
 - `super-productivity/super-productivity#9945` — the backup writer serialises
   the resulting inconsistent store 30 seconds later and it becomes the newest
   file in the rotation.

@@ -30,6 +30,11 @@ type hostMeta struct {
 	// write it, since which project to write to depends on the caller's
 	// working directory rather than on a fixed path.
 	localScopeKey string
+	// jsonc marks a host that reads its config as JSON with comments and
+	// trailing commas. Detection tolerates both for that host only: another
+	// host that parses strict JSON cannot start from such a file, so reporting
+	// its entry as configured would be wrong.
+	jsonc bool
 }
 
 // appDataDir returns %APPDATA%, falling back to the conventional location when
@@ -89,6 +94,7 @@ var hosts = map[string]hostMeta{
 		format:    "json",
 		serverKey: "servers",
 		entryName: "superProductivity",
+		jsonc:     true,
 		configPath: func() string {
 			home := homeDir()
 			switch runtime.GOOS {
@@ -165,6 +171,11 @@ type Detection struct {
 	// user-scope entry already applies everywhere, so when both exist Scope
 	// stays ScopeUser and this is only the extra detail.
 	Projects []string
+	// Err is set when the config file exists but could not be read or
+	// parsed. It is distinct from "not configured": that answer invites
+	// running configure, whereas a file we cannot read calls for looking at it
+	// by hand. Configured is always false when Err is set.
+	Err error
 }
 
 // ScopeSummary renders where a detected entry applies, in one short phrase, or
@@ -186,23 +197,27 @@ func (d Detection) ScopeSummary() string {
 // DetectConfigured reports, for every supported host in stable name order,
 // whether that host's config file contains our entry.
 //
-// Reading is best effort: a missing or unparsable config counts as not
-// configured rather than as an error, because the callers are diagnostics that
-// still have to report on the remaining hosts.
+// A missing config counts as not configured. One that exists but cannot be
+// read or parsed is reported through Detection.Err rather than returned, because
+// the callers are diagnostics that still have to report on the remaining hosts.
 func DetectConfigured() []Detection {
 	targets := ConfigTargets()
 	out := make([]Detection, 0, len(targets))
 	for _, t := range targets {
-		out = append(out, detectOne(t, hosts[t.Name].localScopeKey))
+		meta := hosts[t.Name]
+		out = append(out, detectOne(t, meta.localScopeKey, meta.jsonc))
 	}
 	return out
 }
 
-func detectOne(t ConfigTarget, localScopeKey string) Detection {
+func detectOne(t ConfigTarget, localScopeKey string, jsonc bool) Detection {
 	d := Detection{Host: t.Name}
 
 	data, err := os.ReadFile(t.Path)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			d.Err = err
+		}
 		return d
 	}
 
@@ -214,8 +229,20 @@ func detectOne(t ConfigTarget, localScopeKey string) Detection {
 		return d
 	}
 
+	if jsonc {
+		if data, err = stripJSONC(data); err != nil {
+			d.Err = fmt.Errorf("cannot parse %s: %w", t.Path, err)
+			return d
+		}
+	}
+	// An empty file is what readJSON treats as an empty config, so it is not
+	// an error here either.
+	if strings.TrimSpace(string(data)) == "" {
+		return d
+	}
 	var obj map[string]any
-	if json.Unmarshal(data, &obj) != nil {
+	if err := json.Unmarshal(data, &obj); err != nil {
+		d.Err = fmt.Errorf("cannot parse %s: %w", t.Path, err)
 		return d
 	}
 
@@ -252,6 +279,85 @@ func projectsWithEntry(obj map[string]any, localScopeKey, serverKey, entryName s
 	}
 	sort.Strings(dirs)
 	return dirs
+}
+
+// stripJSONC rewrites JSON-with-comments as plain JSON: // and /* */ comments
+// outside strings are removed, and a comma followed only by whitespace or
+// comments before a closing } or ] is dropped. A block comment becomes a single
+// space so it cannot join the tokens on either side. It only removes syntax;
+// anything else that is not JSON is left for the decoder to reject.
+func stripJSONC(data []byte) ([]byte, error) {
+	out := make([]byte, 0, len(data))
+	inString := false
+	for i := 0; i < len(data); i++ {
+		c := data[i]
+		if inString {
+			out = append(out, c)
+			switch c {
+			case '\\':
+				if i+1 < len(data) {
+					i++
+					out = append(out, data[i])
+				}
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch {
+		case c == '"':
+			inString = true
+			out = append(out, c)
+		case c == '/' && i+1 < len(data) && data[i+1] == '/':
+			for i+1 < len(data) && data[i+1] != '\n' {
+				i++
+			}
+		case c == '/' && i+1 < len(data) && data[i+1] == '*':
+			end := strings.Index(string(data[i+2:]), "*/")
+			if end < 0 {
+				return nil, fmt.Errorf("unterminated block comment")
+			}
+			i += 2 + end + 1
+			out = append(out, ' ')
+		default:
+			out = append(out, c)
+		}
+	}
+
+	// Second pass: drop trailing commas. Comments are gone, so only strings
+	// need tracking.
+	result := make([]byte, 0, len(out))
+	inString = false
+	for i := 0; i < len(out); i++ {
+		c := out[i]
+		if inString {
+			result = append(result, c)
+			switch c {
+			case '\\':
+				if i+1 < len(out) {
+					i++
+					result = append(result, out[i])
+				}
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		if c == '"' {
+			inString = true
+		}
+		if c == ',' {
+			j := i + 1
+			for j < len(out) && strings.IndexByte(" \t\r\n", out[j]) >= 0 {
+				j++
+			}
+			if j < len(out) && (out[j] == '}' || out[j] == ']') {
+				continue
+			}
+		}
+		result = append(result, c)
+	}
+	return result, nil
 }
 
 // tomlHasEntry checks if a TOML file contains a table header [serverKey.entryName]
@@ -581,7 +687,13 @@ func printHostStatus() {
 	anyConfigured := false
 
 	fmt.Println("Host config status:")
+	anyError := false
 	for _, d := range detections {
+		if d.Err != nil {
+			anyError = true
+			fmt.Printf("  %-20s error: %v\n", d.Host, d.Err)
+			continue
+		}
 		if d.Configured {
 			anyConfigured = true
 			fmt.Printf("  %-20s configured (%s)\n", d.Host, d.ScopeSummary())
@@ -591,7 +703,12 @@ func printHostStatus() {
 	}
 
 	fmt.Println()
-	if !anyConfigured {
+	if anyError {
+		// Running configure against a file we could not parse is refused
+		// anyway, and running it blind is the wrong instinct: the file may hold
+		// a working entry in syntax we do not read.
+		fmt.Println("A config that could not be read was not inspected; check it by hand before running configure.")
+	} else if !anyConfigured {
 		fmt.Println("No host is configured.")
 	}
 	// The host names are printed in both cases: the caller being invited to

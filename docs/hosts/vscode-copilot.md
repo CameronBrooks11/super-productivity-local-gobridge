@@ -49,3 +49,7 @@ After restarting VS Code:
 - **Tools not appearing**: Check that the binary path is absolute and the binary is executable
 - **Connection errors**: Ensure Super Productivity is running with Local REST API enabled
 - **Permission errors**: The binary needs read/write access to the config file
+- **`mcp.json` has comments**: `configure --status` and `doctor` read comments
+  and trailing commas the way VS Code does. `configure vscode-copilot` does not:
+  it rewrites the whole file, which would drop them, so it refuses with
+  `cannot parse` and leaves the file alone. Edit the entry by hand instead.

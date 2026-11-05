@@ -149,6 +149,12 @@ func Run(args []string) int {
 	} else {
 		fmt.Println("none configured")
 	}
+	// A warning, not a failure: the bridge itself is healthy, and doctor
+	// reserves failure for checks that stop it working. Saying nothing here
+	// read as "none configured" for a file that may hold a working entry.
+	for _, problem := range checkHostConfigErrors() {
+		fmt.Printf("  → WARN: %s\n", problem)
+	}
 
 	fmt.Print("Access token... ")
 	switch tokenSource {
@@ -329,6 +335,18 @@ func checkHostConfigs() []string {
 		configured = append(configured, hostConfigLabel(d))
 	}
 	return configured
+}
+
+// checkHostConfigErrors returns one line per host whose config file exists but
+// could not be read or parsed.
+func checkHostConfigErrors() []string {
+	var problems []string
+	for _, d := range hostcfg.DetectConfigured() {
+		if d.Err != nil {
+			problems = append(problems, fmt.Sprintf("%s: %v", d.Host, d.Err))
+		}
+	}
+	return problems
 }
 
 // hostConfigLabel names a configured host, qualifying it when the entry only

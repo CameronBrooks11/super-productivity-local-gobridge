@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/CameronBrooks11/super-productivity-local-gobridge/internal/hostcfg"
@@ -97,6 +98,41 @@ func TestCheckHostConfigsDetectsClaudeCodeLocalScope(t *testing.T) {
 	want := "claude-code (local scope: /home/u/repo)"
 	if len(result) != 1 || result[0] != want {
 		t.Errorf("expected [%s], got %v", want, result)
+	}
+}
+
+// An unparsable config is not "none configured": it may hold a working entry
+// in syntax the bridge does not read, and doctor has to say it could not tell.
+func TestCheckHostConfigErrorsReportsUnparsableFile(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", tmp)
+		t.Setenv("APPDATA", filepath.Join(tmp, "AppData", "Roaming"))
+	}
+	path := filepath.Join(tmp, ".claude.json")
+	if err := os.WriteFile(path, []byte(`{"mcpServers":`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := checkHostConfigs(); len(got) != 0 {
+		t.Errorf("expected no configured hosts, got %v", got)
+	}
+	problems := checkHostConfigErrors()
+	if len(problems) != 1 || !strings.HasPrefix(problems[0], "claude-code: cannot parse "+path) {
+		t.Errorf("expected one claude-code parse error naming %s, got %v", path, problems)
+	}
+}
+
+func TestCheckHostConfigErrorsNoFiles(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", tmp)
+		t.Setenv("APPDATA", filepath.Join(tmp, "AppData", "Roaming"))
+	}
+	if got := checkHostConfigErrors(); len(got) != 0 {
+		t.Errorf("missing configs reported as errors: %v", got)
 	}
 }
 

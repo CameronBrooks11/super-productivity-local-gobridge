@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `configure --status` and `doctor` no longer report a host config they could
+  not read or parse as "not configured" (#55). The two call for opposite
+  actions — one for running `configure`, the other for looking at the file —
+  and both printed the same line. `--status` now prints `error: cannot parse
+  <path>: <reason>` for that host, and `doctor` adds a `WARN` line under
+  `Host configs...`; neither changes an exit code.
+
+  VS Code's `mcp.json` is read as JSON with comments, as VS Code reads it, so a
+  hand-edited file carrying `//` or `/* */` comments or trailing commas is
+  detected. This applies to that host only: the other hosts parse their config
+  as strict JSON, so a comment there is reported as the error it is for them.
+  `configure vscode-copilot` still refuses such a file rather than rewriting it
+  without its comments.
+
 ## [0.5.0] - 2026-09-11
 
 ### Added

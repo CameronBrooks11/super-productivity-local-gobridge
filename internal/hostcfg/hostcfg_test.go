@@ -869,18 +869,136 @@ func TestDetectConfigured_TOMLHost(t *testing.T) {
 }
 
 // Detection is a diagnostic: an unreadable config must not stop the remaining
-// hosts from being reported.
-func TestDetectConfigured_MalformedJSONIsNotConfigured(t *testing.T) {
+// hosts from being reported. It must not be reported as "not configured"
+// either: that answer invites running configure, while an unparsable file calls
+// for looking at it by hand.
+func TestDetectConfigured_MalformedJSONIsAnError(t *testing.T) {
 	home := withTempHome(t)
 	writeHostConfig(t, home, HostClaudeCode, `{"mcpServers":`)
 	writeHostConfig(t, home, HostCodex,
 		"[mcp_servers.superProductivity]\ncommand = \"sp-local-bridge\"\n")
 
-	if d := detectionFor(t, HostClaudeCode); d.Configured {
+	d := detectionFor(t, HostClaudeCode)
+	if d.Configured {
 		t.Error("malformed JSON should not count as configured")
 	}
-	if d := detectionFor(t, HostCodex); !d.Configured {
-		t.Error("a malformed config for one host hid another host's entry")
+	if d.Err == nil {
+		t.Error("malformed JSON was reported as absent rather than as an error")
+	}
+	if d := detectionFor(t, HostCodex); !d.Configured || d.Err != nil {
+		t.Errorf("a malformed config for one host affected another host: %+v", d)
+	}
+}
+
+// A missing file is the ordinary "not configured" case, not an error.
+func TestDetectConfigured_MissingFileIsNotAnError(t *testing.T) {
+	withTempHome(t)
+	for _, d := range DetectConfigured() {
+		if d.Err != nil {
+			t.Errorf("host %q: missing config reported as error: %v", d.Host, d.Err)
+		}
+	}
+}
+
+// VS Code reads mcp.json as JSON with comments, so a hand-edited file carrying
+// them is a working configuration. encoding/json rejected it and detection
+// reported the host as not configured (#55).
+func TestDetectConfigured_VSCodeAcceptsComments(t *testing.T) {
+	home := withTempHome(t)
+	writeHostConfig(t, home, HostVSCodeCopilot, `{
+  // Super Productivity bridge
+  "servers": {
+    /* the entry */ "superProductivity": {"command": "sp-local-bridge", "args": ["mcp"],},
+  },
+}
+`)
+
+	d := detectionFor(t, HostVSCodeCopilot)
+	if d.Err != nil {
+		t.Fatalf("expected the commented file to parse, got error: %v", d.Err)
+	}
+	if !d.Configured || d.Scope != ScopeUser {
+		t.Errorf("expected vscode-copilot configured at user scope, got %+v", d)
+	}
+}
+
+// Comment syntax is a VS Code extension, not something every host tolerates.
+// Claude Code parses ~/.claude.json as strict JSON, so a comment there breaks
+// the host and must not be reported as a working entry.
+func TestDetectConfigured_CommentsAreAnErrorForStrictJSONHosts(t *testing.T) {
+	home := withTempHome(t)
+	writeHostConfig(t, home, HostClaudeCode,
+		"{\n// note\n\"mcpServers\":{\"super-productivity\":{\"command\":\"sp-local-bridge\"}}}")
+
+	d := detectionFor(t, HostClaudeCode)
+	if d.Configured {
+		t.Error("a strict-JSON host config with comments was reported as configured")
+	}
+	if d.Err == nil {
+		t.Error("expected a parse error for comments in a strict-JSON host config")
+	}
+}
+
+func TestStripJSONC(t *testing.T) {
+	tests := []struct {
+		name, in, want string
+	}{
+		{"line comment", "{\n// c\n\"a\":1}", "{\n\n\"a\":1}"},
+		{"block comment", `{/* c */"a":1}`, `{ "a":1}`},
+		{"multi-line block comment", "{/* x\ny */\"a\":1}", `{ "a":1}`},
+		{"comment markers inside strings are data", `{"u":"http://x/*y*/"}`, `{"u":"http://x/*y*/"}`},
+		{"escaped quote does not end a string", `{"q":"a\"//b"}`, `{"q":"a\"//b"}`},
+		{"escaped backslash ends before the quote", `{"q":"a\\"//c` + "\n}", `{"q":"a\\"` + "\n}"},
+		{"trailing comma in object", `{"a":1,}`, `{"a":1}`},
+		{"trailing comma in array, whitespace and comment", "[1, /* c */\n]", "[1  \n]"},
+		{"comma inside string is kept", `{"a":",}"}`, `{"a":",}"}`},
+		{"a comment does not join tokens", `[1/**/2]`, `[1 2]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := stripJSONC([]byte(tt.in))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if string(got) != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// An unterminated block comment would otherwise swallow the rest of the file,
+// and whatever was left could happen to parse.
+func TestStripJSONC_UnterminatedBlockComment(t *testing.T) {
+	if _, err := stripJSONC([]byte(`{"a":1} /* never closed`)); err == nil {
+		t.Error("expected an error for an unterminated block comment")
+	}
+}
+
+func TestRunConfigure_Status_ReportsUnparsableConfig(t *testing.T) {
+	home := withTempHome(t)
+	writeHostConfig(t, home, HostClaudeDesktop, `{"mcpServers":`)
+
+	out := captureStdout(t, func() {
+		if code := RunConfigure([]string{"--status"}); code != 0 {
+			t.Fatalf("expected exit 0, got %d", code)
+		}
+	})
+
+	if statusLineContains(out, HostClaudeDesktop, "not configured") {
+		t.Errorf("unparsable config reported as not configured:\n%s", out)
+	}
+	if !statusLineContains(out, HostClaudeDesktop, "cannot parse") {
+		t.Errorf("expected claude-desktop reported as unparsable, got:\n%s", out)
+	}
+	path := testConfigPath(home, HostClaudeDesktop)
+	if !strings.Contains(out, path) {
+		t.Errorf("expected the report to name %s, got:\n%s", path, out)
+	}
+	// "No host is configured." followed by an invitation to run configure is
+	// the advice this report must not give for a file it could not read.
+	if strings.Contains(out, "No host is configured.") {
+		t.Errorf("an unreadable config was summarised as no host configured:\n%s", out)
 	}
 }
 

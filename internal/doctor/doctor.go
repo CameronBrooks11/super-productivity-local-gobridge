@@ -338,12 +338,19 @@ func checkHostConfigs() []string {
 }
 
 // checkHostConfigErrors returns one line per host whose config file exists but
-// could not be read or parsed.
+// could not be read or parsed, and one per host whose entry records a command
+// that does not exist. The second is the moved-binary case: the rest of doctor
+// checks the binary that is running, never the path a host will launch.
 func checkHostConfigErrors() []string {
 	var problems []string
 	for _, d := range hostcfg.DetectConfigured() {
 		if d.Err != nil {
 			problems = append(problems, fmt.Sprintf("%s: %v", d.Host, d.Err))
+		}
+		for _, cmd := range d.MissingCommands {
+			problems = append(problems, fmt.Sprintf(
+				"%s: entry runs %s, which does not exist; re-run `sp-local-bridge configure %s` or fix the entry by hand",
+				d.Host, cmd, d.Host))
 		}
 	}
 	return problems

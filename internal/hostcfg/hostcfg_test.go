@@ -1672,3 +1672,171 @@ func TestExtraPositional_MessageFormat(t *testing.T) {
 		})
 	}
 }
+
+// --- Recorded command ---
+
+// jsonEntry renders a host config holding our entry with the given command,
+// marshalled so that a Windows path's backslashes are escaped correctly.
+func jsonEntry(t *testing.T, serverKey, entryName, command string) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{
+		serverKey: map[string]any{entryName: map[string]any{"command": command, "args": []string{"mcp"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// goneBinary returns an absolute path that does not exist on any platform.
+func goneBinary(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), "gone", "old", "sp-local-bridge")
+}
+
+// presentBinary returns an absolute path to a file that exists.
+func presentBinary(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "sp-local-bridge")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// A moved binary is the realistic upgrade failure: the entry key is still
+// there, so detection said "configured", and the host cannot start the server
+// (#54).
+func TestDetectConfigured_MissingCommandIsReported(t *testing.T) {
+	home := withTempHome(t)
+	gone := goneBinary(t)
+	writeHostConfig(t, home, HostClaudeCode, jsonEntry(t, "mcpServers", "super-productivity", gone))
+
+	d := detectionFor(t, HostClaudeCode)
+	if !d.Configured {
+		t.Fatal("the entry is present and should still count as configured")
+	}
+	if len(d.MissingCommands) != 1 || d.MissingCommands[0] != gone {
+		t.Errorf("expected missing command %q, got %v", gone, d.MissingCommands)
+	}
+}
+
+func TestDetectConfigured_PresentCommandIsNotReported(t *testing.T) {
+	home := withTempHome(t)
+	writeHostConfig(t, home, HostClaudeDesktop,
+		jsonEntry(t, "mcpServers", "super-productivity", presentBinary(t)))
+
+	if d := detectionFor(t, HostClaudeDesktop); !d.Configured || len(d.MissingCommands) != 0 {
+		t.Errorf("expected configured with no missing command, got %+v", d)
+	}
+}
+
+// A bare command is resolved through the host's PATH, which is not ours to
+// read, so it can be neither confirmed nor reported missing.
+func TestDetectConfigured_BareCommandIsNotChecked(t *testing.T) {
+	home := withTempHome(t)
+	writeHostConfig(t, home, HostClaudeCode,
+		jsonEntry(t, "mcpServers", "super-productivity", "sp-local-bridge-definitely-not-on-path"))
+
+	if d := detectionFor(t, HostClaudeCode); !d.Configured || len(d.MissingCommands) != 0 {
+		t.Errorf("a bare command was reported missing: %+v", d)
+	}
+}
+
+func TestDetectConfigured_MissingCommandInLocalScope(t *testing.T) {
+	home := withTempHome(t)
+	gone := goneBinary(t)
+	b, err := json.Marshal(map[string]any{"projects": map[string]any{
+		"/home/u/repo": map[string]any{"mcpServers": map[string]any{
+			"super-productivity": map[string]any{"command": gone},
+		}},
+		"/home/u/other": map[string]any{"mcpServers": map[string]any{
+			"super-productivity": map[string]any{"command": gone},
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeHostConfig(t, home, HostClaudeCode, string(b))
+
+	d := detectionFor(t, HostClaudeCode)
+	// One path recorded twice is one thing to fix, so it is listed once.
+	if len(d.MissingCommands) != 1 || d.MissingCommands[0] != gone {
+		t.Errorf("expected missing command %q once, got %v", gone, d.MissingCommands)
+	}
+}
+
+func TestDetectConfigured_MissingCommandInTOML(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		quote func(string) string
+	}{
+		{"basic string", tomlQuote},
+		{"literal string", func(s string) string { return "'" + s + "'" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := withTempHome(t)
+			gone := goneBinary(t)
+			writeHostConfig(t, home, HostCodex,
+				"[mcp_servers.superProductivity]\ncommand = "+tc.quote(gone)+"\nargs = [\"mcp\"]\n")
+
+			d := detectionFor(t, HostCodex)
+			if !d.Configured {
+				t.Fatal("expected codex configured")
+			}
+			if len(d.MissingCommands) != 1 || d.MissingCommands[0] != gone {
+				t.Errorf("expected missing command %q, got %v", gone, d.MissingCommands)
+			}
+		})
+	}
+}
+
+func TestDetectConfigured_PresentCommandInTOML(t *testing.T) {
+	home := withTempHome(t)
+	writeHostConfig(t, home, HostCodex,
+		"[mcp_servers.superProductivity]\ncommand = "+tomlQuote(presentBinary(t))+"  # installed\n")
+
+	if d := detectionFor(t, HostCodex); !d.Configured || len(d.MissingCommands) != 0 {
+		t.Errorf("expected configured with no missing command, got %+v", d)
+	}
+}
+
+func TestTomlEntryCommand(t *testing.T) {
+	tests := []struct {
+		name, data, want string
+		found            bool
+	}{
+		{"basic", "[s.e]\ncommand = \"/a/b\"\n", "/a/b", true},
+		{"escapes", "[s.e]\ncommand = \"C:\\\\x\\\\\\\"q\"\n", `C:\x\"q`, true},
+		{"literal", "[s.e]\ncommand = 'C:\\x'\n", `C:\x`, true},
+		{"trailing comment", "[s.e]\ncommand = \"/a\" # note\n", "/a", true},
+		{"unsupported escape is unknown, not wrong", "[s.e]\ncommand = \"/a\\u0062\"\n", "", true},
+		{"non-string value is unknown", "[s.e]\ncommand = 42\n", "", true},
+		{"no entry", "[s.other]\ncommand = \"/a\"\n", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, found := tomlEntryCommand(tt.data, "s", "e")
+			if got != tt.want || found != tt.found {
+				t.Errorf("got (%q, %v), want (%q, %v)", got, found, tt.want, tt.found)
+			}
+		})
+	}
+}
+
+func TestRunConfigure_Status_ReportsMissingCommand(t *testing.T) {
+	home := withTempHome(t)
+	gone := goneBinary(t)
+	writeHostConfig(t, home, HostClaudeCode, jsonEntry(t, "mcpServers", "super-productivity", gone))
+
+	out := captureStdout(t, func() {
+		if code := RunConfigure([]string{"--status"}); code != 0 {
+			t.Fatalf("expected exit 0, got %d", code)
+		}
+	})
+
+	want := "configured (user scope, command not found: " + gone + ")"
+	if !statusLineContains(out, HostClaudeCode, want) {
+		t.Errorf("expected %q on the claude-code line, got:\n%s", want, out)
+	}
+}

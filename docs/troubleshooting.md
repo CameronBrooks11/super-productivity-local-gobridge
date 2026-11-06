@@ -57,9 +57,13 @@ sp-local-bridge configure <host>    # Re-run configure
 ```
 Then restart the host application.
 
-`--status` reports whether an entry exists, not whether the command it records
-still resolves. An entry left pointing at a binary that has since moved is still
-reported as configured; re-running `configure <host>` rewrites the path.
+`--status` and `doctor` also check the command an entry records. An entry left
+pointing at a binary that has since moved is reported as
+`configured (user scope, command not found: /old/path/sp-local-bridge)`, and
+`doctor` prints a `WARN` for it; re-running `configure <host>` rewrites the
+path. Only an absolute path is checked: a bare `sp-local-bridge` is resolved
+through the host's own `PATH`, which the bridge cannot see, so it is neither
+confirmed nor reported missing.
 
 ### "command not found" after install
 

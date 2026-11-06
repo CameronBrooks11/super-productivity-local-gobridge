@@ -2,7 +2,9 @@ package hostcfg
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -176,6 +178,23 @@ type Detection struct {
 	// running configure, whereas a file we cannot read calls for looking at it
 	// by hand. Configured is always false when Err is set.
 	Err error
+	// MissingCommands lists, sorted and once each, the absolute command
+	// paths our entries record that do not exist — typically a binary that
+	// moved after configure wrote its path. The host cannot start the server
+	// from such an entry, though the entry itself is present. A bare or
+	// relative command is resolved through the host's PATH, which is not ours
+	// to read, so it is neither confirmed nor listed here.
+	MissingCommands []string
+}
+
+// StatusSummary is ScopeSummary followed by any recorded command that does not
+// exist, for the line that reports a configured host.
+func (d Detection) StatusSummary() string {
+	s := d.ScopeSummary()
+	if len(d.MissingCommands) > 0 {
+		s += ", command not found: " + strings.Join(d.MissingCommands, ", ")
+	}
+	return s
 }
 
 // ScopeSummary renders where a detected entry applies, in one short phrase, or
@@ -222,9 +241,10 @@ func detectOne(t ConfigTarget, localScopeKey string, jsonc bool) Detection {
 	}
 
 	if t.Format != "json" {
-		if tomlHasEntry(string(data), t.ServerKey, t.EntryName) {
+		if cmd, found := tomlEntryCommand(string(data), t.ServerKey, t.EntryName); found {
 			d.Configured = true
 			d.Scope = ScopeUser
+			d.MissingCommands = missingCommands([]string{cmd})
 		}
 		return d
 	}
@@ -246,9 +266,11 @@ func detectOne(t ConfigTarget, localScopeKey string, jsonc bool) Detection {
 		return d
 	}
 
+	var commands []string
 	if servers, _ := obj[t.ServerKey].(map[string]any); servers != nil && servers[t.EntryName] != nil {
 		d.Configured = true
 		d.Scope = ScopeUser
+		commands = append(commands, entryCommand(servers[t.EntryName]))
 	}
 
 	if localScopeKey != "" {
@@ -259,8 +281,43 @@ func detectOne(t ConfigTarget, localScopeKey string, jsonc bool) Detection {
 				d.Scope = ScopeLocal
 			}
 		}
+		projects, _ := obj[localScopeKey].(map[string]any)
+		for _, dir := range d.Projects {
+			section, _ := projects[dir].(map[string]any)
+			servers, _ := section[t.ServerKey].(map[string]any)
+			commands = append(commands, entryCommand(servers[t.EntryName]))
+		}
 	}
+	d.MissingCommands = missingCommands(commands)
 	return d
+}
+
+// entryCommand returns the "command" string of a JSON server entry, or the
+// empty string when it has none.
+func entryCommand(entry any) string {
+	m, _ := entry.(map[string]any)
+	cmd, _ := m["command"].(string)
+	return cmd
+}
+
+// missingCommands returns the absolute paths among commands that do not exist,
+// sorted and without duplicates. Anything else — empty, bare, or relative —
+// is skipped: it is resolved against a PATH or working directory that belongs
+// to the host, so its absence here would prove nothing.
+func missingCommands(commands []string) []string {
+	seen := map[string]bool{}
+	var missing []string
+	for _, cmd := range commands {
+		if cmd == "" || !filepath.IsAbs(cmd) || seen[cmd] {
+			continue
+		}
+		seen[cmd] = true
+		if _, err := os.Stat(cmd); errors.Is(err, fs.ErrNotExist) {
+			missing = append(missing, cmd)
+		}
+	}
+	sort.Strings(missing)
+	return missing
 }
 
 // projectsWithEntry returns the project directories whose per-project section
@@ -364,6 +421,15 @@ func stripJSONC(data []byte) ([]byte, error) {
 // at the start of a line, with a "command" key in the following section body.
 // This is a line-based parse that avoids matching inside strings or comments.
 func tomlHasEntry(data, serverKey, entryName string) bool {
+	_, found := tomlEntryCommand(data, serverKey, entryName)
+	return found
+}
+
+// tomlEntryCommand finds the entry tomlHasEntry looks for and also returns its
+// command value. found reports whether the entry exists; the command is the
+// empty string when the value is not a string this reader decodes, which
+// callers treat as "unknown" rather than as missing.
+func tomlEntryCommand(data, serverKey, entryName string) (command string, found bool) {
 	header := fmt.Sprintf("[%s.%s]", serverKey, entryName)
 	lines := strings.Split(data, "\n")
 	inSection := false
@@ -386,11 +452,47 @@ func tomlHasEntry(data, serverKey, entryName string) bool {
 			rest := strings.TrimPrefix(trimmed, "command")
 			rest = strings.TrimSpace(rest)
 			if strings.HasPrefix(rest, "=") {
-				return true
+				return tomlStringValue(strings.TrimPrefix(rest, "=")), true
 			}
 		}
 	}
-	return false
+	return "", false
+}
+
+// tomlStringValue decodes a single-line TOML string at the start of v: a
+// literal '...' string, or a basic "..." string using the \\ and \" escapes
+// that tomlQuote writes. Anything else — another escape, a multi-line string,
+// a non-string value — returns the empty string, meaning "not decoded".
+func tomlStringValue(v string) string {
+	v = strings.TrimSpace(v)
+	switch {
+	case strings.HasPrefix(v, "'''") || strings.HasPrefix(v, `"""`):
+		return ""
+	case strings.HasPrefix(v, "'"):
+		end := strings.IndexByte(v[1:], '\'')
+		if end < 0 {
+			return ""
+		}
+		return v[1 : 1+end]
+	case strings.HasPrefix(v, `"`):
+		var b strings.Builder
+		for i := 1; i < len(v); i++ {
+			c := v[i]
+			switch c {
+			case '"':
+				return b.String()
+			case '\\':
+				if i+1 >= len(v) || (v[i+1] != '\\' && v[i+1] != '"') {
+					return ""
+				}
+				i++
+				b.WriteByte(v[i])
+			default:
+				b.WriteByte(c)
+			}
+		}
+	}
+	return ""
 }
 
 // --- Command resolution ---
@@ -696,7 +798,7 @@ func printHostStatus() {
 		}
 		if d.Configured {
 			anyConfigured = true
-			fmt.Printf("  %-20s configured (%s)\n", d.Host, d.ScopeSummary())
+			fmt.Printf("  %-20s configured (%s)\n", d.Host, d.StatusSummary())
 			continue
 		}
 		fmt.Printf("  %-20s not configured\n", d.Host)

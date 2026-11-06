@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -297,4 +298,30 @@ func containsSubstring(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// doctor checks the running binary, never the command a host config records,
+// so an entry left pointing at a moved binary read as healthy (#54).
+func TestCheckHostConfigErrorsReportsMissingCommand(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", tmp)
+		t.Setenv("APPDATA", filepath.Join(tmp, "AppData", "Roaming"))
+	}
+	gone := filepath.Join(tmp, "gone", "sp-local-bridge")
+	b, err := json.Marshal(map[string]any{"mcpServers": map[string]any{
+		"super-productivity": map[string]any{"command": gone},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, ".claude.json"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	problems := checkHostConfigErrors()
+	if len(problems) != 1 || !strings.Contains(problems[0], "claude-code") || !strings.Contains(problems[0], gone) {
+		t.Errorf("expected one claude-code warning naming %s, got %v", gone, problems)
+	}
 }

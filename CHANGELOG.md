@@ -23,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `configure vscode-copilot` still refuses such a file rather than rewriting it
   without its comments.
 
+- `configure --status` and `doctor` now check that the command a host entry
+  records still exists (#54). An entry left pointing at a binary that has
+  moved — the usual upgrade failure — was reported as configured, and the host
+  could not start the server. It now reads `configured (user scope, command not
+  found: <path>)`, and `doctor` adds a `WARN`. Only absolute paths are checked;
+  a bare command is resolved through the host's `PATH`, which the bridge
+  cannot see, so it is not reported either way.
+
 ## [0.5.0] - 2026-09-11
 
 ### Added
